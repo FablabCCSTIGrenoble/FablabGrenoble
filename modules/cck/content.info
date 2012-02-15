@@ -1,0 +1,10 @@
+name = Content
+description = Allows administrators to define new content types.
+package = CCK
+core = 6.x
+; Information added by drupal.org packaging script on 2011-03-17
+version = "6.x-3.0-alpha3"
+core = "6.x"
+project = "cck"
+datestamp = "1300377966"
+

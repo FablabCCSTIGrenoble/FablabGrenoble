@@ -1,0 +1,1085 @@
+<?php
+/**
+ * @file
+ * Version Control API - An interface to version control systems
+ * whose functionality is provided by pluggable back-end modules.
+ *
+ * Copyright 2006, 2007 Derek Wright ("dww" , http://drupal.org/user/46549)
+ * Copyright 2007, 2008, 2009 by Jakob Petsovits ("jpetso", http://drupal.org/user/56020)
+ */
+
+/**
+ * @name backend capabilities
+ * Optional capabilities that backend modules can provide.
+ */
+//@{
+define('VERSIONCONTROL_CAPABILITY_ATOMIC_COMMITS',          1);
+define('VERSIONCONTROL_CAPABILITY_DIRECTORY_REVISIONS',     4);
+//@}
+
+/**
+ * @name VCS actions
+ * for a single item (file or directory) in a commit, or for branches and tags.
+ */
+//@{
+define('VERSIONCONTROL_ACTION_ADDED',    1);
+define('VERSIONCONTROL_ACTION_MODIFIED', 2);
+define('VERSIONCONTROL_ACTION_MOVED',    3); //< == renamed
+define('VERSIONCONTROL_ACTION_COPIED',   4);
+define('VERSIONCONTROL_ACTION_MERGED',   5);
+define('VERSIONCONTROL_ACTION_DELETED',  6);
+define('VERSIONCONTROL_ACTION_REPLACED', 7);
+define('VERSIONCONTROL_ACTION_OTHER',    8); //< for example, SVN revprop-only changes
+//@}
+
+/**
+ * @name Constraint 'cardinality' key
+ * Allowed values for the 'cardinality' key in constraint descriptions
+ * provided by hook_versioncontrol_operation_constraint_info().
+ */
+//@{
+define('VERSIONCONTROL_CONSTRAINT_MULTIPLE',           1); // default
+define('VERSIONCONTROL_CONSTRAINT_SINGLE',             2);
+define('VERSIONCONTROL_CONSTRAINT_SINGLE_OR_MULTIPLE', 3);
+//@}
+
+/**
+ * @name User relation constraints
+ * Allowed values for use with the 'user_relation' constraint in
+ * versioncontrol_get_operations() queries.
+ */
+//@{
+define('VERSIONCONTROL_USER_ASSOCIATED',        1);
+define('VERSIONCONTROL_USER_ASSOCIATED_ACTIVE', 2);
+//@}
+
+/**
+ * @name VCS label types
+ * Use same values as VERSIONCONTROL_OPERATION_* for backward compatibility
+ */
+//@{
+define('VERSIONCONTROL_LABEL_BRANCH', 2);
+define('VERSIONCONTROL_LABEL_TAG',    3);
+//@}
+
+/**
+ * @name VCS operations
+ * a.k.a. stuff that is recorded for display purposes.
+ */
+//@{
+define('VERSIONCONTROL_OPERATION_COMMIT', 1);
+define('VERSIONCONTROL_OPERATION_BRANCH', 2);
+define('VERSIONCONTROL_OPERATION_TAG',    3);
+//@}
+
+/**
+ * @name VCS item types.
+ */
+//@{
+define('VERSIONCONTROL_ITEM_FILE',              1);
+define('VERSIONCONTROL_ITEM_DIRECTORY',         2);
+//@}
+/**
+ * @name VCS "Deleted" item types.
+ * Only used for items that don't exist in the repository (anymore), at least
+ * not in the given revision. That is mostly the case with items that
+ * were deleted by a commit and are returned as result by
+ * VersioncontrolOperation::getItems(). A "deleted file" can also be
+ * returned by directory listings for CVS, representing "dead files".
+ */
+//@{
+define('VERSIONCONTROL_ITEM_FILE_DELETED',      3);
+define('VERSIONCONTROL_ITEM_DIRECTORY_DELETED', 4);
+//@}
+
+/**
+ * @name Update methods.
+ */
+//@{
+define('VERSIONCONTROL_UPDATE_LOG_PARSE_ON_CRON', 0);
+define('VERSIONCONTROL_UPDATE_INDEPENDENT_EXTERNAL_SCRIPTS', 1);
+//@}
+
+/**
+ * Implementation of hook_flush_caches().
+ *
+ * Triggers backend mode determination.
+ *
+ */
+function versioncontrol_flush_caches() {
+  versioncontrol_determine_backend_mode();
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function versioncontrol_theme() {
+  $theme = array();
+  $theme['versioncontrol_account_username'] = array(
+    'arguments' => array('uid', 'username', 'repository', 'options' => NULL),
+  );
+  $theme['versioncontrol_user_statistics_table'] = array(
+    'arguments' => array('statistics', 'options'),
+  );
+  $theme['versioncontrol_user_statistics_item_list'] = array(
+    'arguments' => array('statistics', 'more_link'),
+  );
+  $theme['versioncontrol_user_statistics_account'] = array(
+    'arguments' => array('user_stats'),
+  );
+  $theme['versioncontrol_diffstat'] = array(
+    'arguments' => array('places', 'results'),
+    'file' => 'includes/versioncontrol_theme.inc'
+  );
+  $theme['versioncontrol_view_row_operation_rss'] = array(
+    'arguments' => array('view', 'options', 'item'),
+    'file' => 'includes/versioncontrol_theme.inc'
+  );
+  return $theme;
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function versioncontrol_menu() {
+  // FIXME this is hacky; it forces autoload to rebuild its cache to ensure
+  // everything is up-to-date, since we need it to be for this function.
+  autoload_registry_update();
+
+  $items = array();
+
+  $admin = array(
+    'page callback' => 'drupal_get_form',
+    'access arguments' => array('administer version control systems'),
+    'file' => 'versioncontrol.admin.inc',
+  );
+
+  $items['admin/settings/versioncontrol-settings'] = array(
+    'title' => 'Version Control settings',
+    'description' => 'Configure settings for Version Control API and related modules.',
+    'page arguments' => array('versioncontrol_admin_settings'),
+    'type' => MENU_NORMAL_ITEM,
+  ) + $admin;
+
+  $items['admin/settings/versioncontrol-settings/general'] = array(
+    'title' => 'General',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+
+  $items['admin/settings/versioncontrol-settings/views-sets'] = array(
+    'title' => 'Views sets',
+    'description' => 'Configure the sets of Views used by Version Control API and related modules.',
+    'page arguments' => array('versioncontrol_admin_views_sets_edit'),
+    'type' => MENU_LOCAL_TASK,
+  ) + $admin;
+
+  $items['admin/settings/versioncontrol-settings/plugins'] = array(
+    'title' => 'Plugins',
+    'description' => 'Default plugins and its configuration per backend.',
+    'page arguments' => array('versioncontrol_admin_settings_plugins'),
+    'type' => MENU_LOCAL_TASK,
+  ) + $admin;
+
+  $items['admin/content/versioncontrol-repositories'] = array(
+    'title' => 'VCS Repositories',
+    'description' => 'Define and manage the Version Control repositories known to your site.',
+    'page arguments' => array('versioncontrol_admin_repository_list'),
+  ) + $admin;
+
+  $weight = 1;
+  $items['admin/content/versioncontrol-repositories/list'] = array(
+    'title' => 'List',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => $weight,
+  );
+
+  // former !$may_cache
+  /// TODO: Backend specific stuff was done in !$may_cache, as it once
+  ///       screwed up after activating a new backend in admin/build/modules.
+  ///       Make sure this works now.
+  foreach (versioncontrol_get_backends() as $vcs => $backend) {
+    $items['admin/content/versioncontrol-repositories/add-'. $vcs] = array(
+      'title' => 'Add @vcs repository',
+      'title arguments' => array('@vcs' => $backend->name),
+      'page arguments' => array('versioncontrol_admin_repository_edit',
+        FALSE, $vcs
+      ),
+      'type' => MENU_LOCAL_TASK,
+      'weight' => ++$weight,
+    ) + $admin;
+  }
+  // end former !$may_cache
+
+  $items['admin/content/versioncontrol-repositories/edit/%versioncontrol_repository'] = array(
+    'title' => 'Edit repository',
+    'page arguments' => array('versioncontrol_admin_repository_edit', 4),
+    'type' => MENU_CALLBACK,
+  ) + $admin;
+  $items['admin/content/versioncontrol-repositories/delete/%versioncontrol_repository'] = array(
+    'title' => 'Delete repository',
+    'page arguments' => array('versioncontrol_admin_repository_delete_confirm', 4),
+    'type' => MENU_CALLBACK,
+  ) + $admin;
+  $items['admin/content/versioncontrol-repositories/clearlock/%versioncontrol_repository'] = array(
+    'title' => 'Clear lock',
+    'page arguments' => array('versioncontrol_admin_repository_clearlock_confirm', 4),
+    'type' => MENU_CALLBACK,
+  ) + $admin;
+  $items['admin/content/versioncontrol-repositories/fetch/%versioncontrol_repository'] = array(
+    'title' => 'Fetch logs',
+    'page arguments' => array('versioncontrol_admin_repository_fetch_confirm', 4),
+    'type' => MENU_CALLBACK,
+  ) + $admin;
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_views_api().
+ *
+ * @return array
+ */
+function versioncontrol_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'versioncontrol'). '/includes/views',
+  );
+}
+
+/**
+ * General helper function to get an array relating type id to string
+ */
+function versioncontrol_operation_types() {
+  return array(
+    VERSIONCONTROL_OPERATION_COMMIT => t('Commit'),
+    VERSIONCONTROL_OPERATION_BRANCH => t('Branch'),
+    VERSIONCONTROL_OPERATION_TAG    => t('Tag'),
+  );
+}
+
+function versioncontrol_revision_actions() {
+  return array(
+    VERSIONCONTROL_ACTION_ADDED => t('Added'),
+    VERSIONCONTROL_ACTION_MODIFIED => t('Modified'),
+    VERSIONCONTROL_ACTION_MOVED => t('Renamed'),
+    VERSIONCONTROL_ACTION_COPIED => t('Copied'),
+    VERSIONCONTROL_ACTION_MERGED => t('Merged'),
+    VERSIONCONTROL_ACTION_DELETED => t('Removed'),
+    VERSIONCONTROL_ACTION_REPLACED => t('Replaced'),
+    VERSIONCONTROL_ACTION_OTHER => t('Other'),
+  );
+}
+
+/**
+ * Determine if we are operating in single or multi-backend mode, and set a
+ * $conf variable accordingly.
+ *
+ */
+function versioncontrol_determine_backend_mode() {
+  $single = count(versioncontrol_get_backends()) <= 1;
+  variable_set('versioncontrol_single_backend_mode', $single);
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function versioncontrol_perm() {
+  return array(
+    'administer version control systems',
+    'use version control systems',
+  );
+}
+
+/**
+ * Implements hook_cron_queue_info().
+ *
+ * Inform the job queueing system about our worker callback.
+ */
+function versioncontrol_cron_queue_info() {
+  $queues = array();
+
+  $queues['versioncontrol_repomgr'] = array(
+    'worker callback' => 'versioncontrol_repomgr_run_worker',
+    'time' => 0,
+  );
+
+  return $queues;
+}
+
+/**
+ * Process a versioncontrol_repomgr queue job.
+ *
+ * Passthrough to _versioncontrol_repomgr_run_worker().
+ *
+ * @see _versioncontrol_repomgr_run_worker()
+ *
+ * @param array $data
+ *   The array of job data to be processed.
+ */
+function versioncontrol_repomgr_run_worker($data) {
+  ctools_include('worker', 'versioncontrol');
+  return _versioncontrol_repomgr_run_worker($data);
+}
+
+// API functions start here.
+
+/**
+ * Menu wildcard loader for repository ids ('%versioncontrol_repository').
+ *
+ * @return VersioncontrolRepository
+ *   Returns the top VersioncontrolRepository object from the array returned
+ *   given the query conditions, or FALSE if no such objects were found given
+ *   the conditions.
+ */
+function versioncontrol_repository_load($repo_id, $conditions = array(), $options = array()) {
+  if (!is_array($repo_id)) {
+    $repo_id = array($repo_id);
+  }
+  $repository = versioncontrol_repository_load_multiple($repo_id, $conditions, $options);
+  return empty($repository) ? FALSE : reset($repository);
+}
+
+/**
+ * Load multiple versioncontrol repositories, given provided conditions and
+ * options.
+ *
+ * This function statically caches a global VersioncontrolRepositoryController
+ * entity controller, and uses it to load repositories.
+ *
+ * @param $ids
+ * @param $conditions
+ * @param $options
+ * @return array
+ *
+ */
+function versioncontrol_repository_load_multiple($ids = array(), $conditions = array(), $options = array()) {
+  $controller = &ctools_static(__FUNCTION__);
+  if (!isset($controller)) {
+    if (variable_get('versioncontrol_single_backend_mode', FALSE)) {
+      $backends = versioncontrol_get_backends();
+      $backend = reset($backends);
+      // need to ensure the controller is initialized, and this is the only way
+      $result = $backend->loadEntities('repo', $ids, $conditions, $options);
+      $controller = $backend->controllers['repo'];
+      return $result;
+    }
+    else {
+      $controller = new VersioncontrolRepositoryController();
+    }
+  }
+  return $controller->load($ids, $conditions, $options);
+}
+
+/**
+ * Get a list of all backends with its detailed information.
+ *
+ * @param string $backend
+ *   Optional; the backend type's backend object to be returned. If not
+ *   specified, all backend types are returned.
+ *
+ * @return mixed
+ *   Either a structured array containing backend objects from each backend,
+ *   keyed on the unique string identifier corresponding to that backend (e.g.
+ *   'cvs', 'svn').
+ *   The backend objects are all descendents of VersioncontrolBackend.
+ *
+ *   An example of the result array can be found in the FakeVCS example module.
+ */
+function versioncontrol_get_backends($backend = '', $reset = FALSE) {
+  $backends = &ctools_static(__FUNCTION__);
+
+  if (!isset($backends) || $reset) {
+    $backends = module_invoke_all('versioncontrol_backends');
+  }
+
+  if (!empty($backend)) {
+    return isset($backends[$backend]) ? $backends[$backend] : array();
+  }
+  else {
+    return $backends;
+  }
+}
+
+/**
+ * Determine all user account authorization methods
+ * (free for all, only admin may create accounts, per-repository approval, ...)
+ * by invoking hook_versioncontrol_authorization_methods().
+ *
+ * @return
+ *   A structured array with the unique string identifier of the method as keys
+ *   and the user-visible description (wrapped in t()) as values.
+ */
+function versioncontrol_get_authorization_methods() {
+  static $methods;
+
+  if (!isset($methods)) {
+    $methods = module_invoke_all('versioncontrol_authorization_methods');
+  }
+  return $methods;
+}
+
+/**
+ * Implementation of hook_versioncontrol_authorization_methods().
+ *
+ * @return
+ *   A structured array containing information about authorization methods
+ *   provided by this module, wrapped in a structured array. Array keys are
+ *   the unique string identifiers of each authorization method, and
+ *   array values are the user-visible method descriptions (wrapped in t()).
+ */
+function versioncontrol_versioncontrol_authorization_methods() {
+  return array(
+    'versioncontrol_admin' => t('Only administrators can create accounts'),
+    'versioncontrol_none' => t('No approval required'),
+  );
+}
+
+function _versioncontrol_get_fallback_authorization_method() {
+  return 'versioncontrol_admin';
+}
+
+/**
+ * Retrieve additional information about the origin of a given set of items.
+ *
+ * @param $repository
+ *   The repository that the items are located in.
+ * @param $items
+ *   An array of item arrays, for example as returned by
+ *   VersioncontrolOperation::getItems().
+ *
+ * @return
+ *   This function does not have a return value; instead, it alters the
+ *   given item arrays and adds additional information about their origin.
+ *   The following elements will be set for all items whose source items
+ *   could be retrieved.
+ *
+ *   - 'action': Specifies how the item was changed.
+ *        One of the predefined VERSIONCONTROL_ACTION_* values.
+ *   - 'source_items': An array with the previous revision(s) of the affected
+ *        item. Empty if 'action' is VERSIONCONTROL_ACTION_ADDED. The key for
+ *        all items in this array is the respective item path.
+ *   - 'replaced_item': The previous but technically unrelated item at the
+ *        same location as the current item. Only exists if this previous item
+ *        was deleted and replaced by a different one that was just moved
+ *        or copied to this location.
+ *   - 'line_changes': Only exists if line changes have been recorded for this
+ *        action - if so, this is an array containing the number of added lines
+ *        in an element with key 'added', and the number of removed lines in
+ *        the 'removed' key.
+ */
+function versioncontrol_fetch_source_items($repository, &$items) {
+  if (empty($items)) {
+    return;
+  }
+  $placeholders = array();
+  $ids = array();
+  $item_keys = array();
+
+  foreach ($items as $key => $item) {
+    // If we don't yet know the item_revision_id (required for db queries), try
+    // to retrieve it. If we don't find it, we can't fetch this item's sources.
+    if ($item->fetchItemRevisionId()) {
+      $placeholders[] = '%d';
+      $ids[] = $item->item_revision_id;
+      $item_keys[$item->item_revision_id] = $key;
+    }
+  }
+  if (empty($ids)) {
+    return;
+  }
+
+  $result = db_query(
+    'SELECT item_revision_id, source_item_revision_id, action,
+            line_changes_recorded, line_changes_added,
+            line_changes_removed, path, revision, type
+     FROM {versioncontrol_item_revisions}
+     WHERE item_revision_id IN ('. implode(',', $placeholders) .')', $ids);
+
+  while ($item_revision = db_fetch_object($result)) {
+    $successor_key = $item_keys[$item_revision->item_revision_id];
+    if (!isset($items[$successor_key]->source_items)) {
+      $items[$successor_key]->source_items = array();
+    }
+
+    // FIXME this should pass through the factory (VersioncontrolBackend::buildEntity()),
+    // but since we're getting rid of this whole 'source items' thing anyway,
+    // just gonna make this note since the whole function will be going away.
+    $item_backend = $repository->getBackend();
+    $item = new $backend->classes['item'](
+      $item_revision->type,
+      $item_revision->path,
+      $item_revision->revision,
+      NULL,
+      $repository
+    );
+    $item->selected_label = new stdClass();
+    $item->selected_label->get_from = 'other_item';
+    $item->selected_label->other_item = &$items[$successor_key];
+    $item->selected_label->other_item_tags = array('successor_item');
+
+    // Insert the item and its associated action into the successor item.
+    if ($item_revision->action == VERSIONCONTROL_ACTION_REPLACED) {
+      $items[$successor_key]->replaced_item = $item;
+    }
+    elseif ($item_revision->action == VERSIONCONTROL_ACTION_ADDED) {
+      $items[$successor_key]['action'] = $item_revision->action;
+      // Added items only join to an empty (NULL) item, ignore that one
+      // instead of adding it to the source items.
+    }
+    else {
+      $items[$successor_key]->action = $item_revision->action;
+      $items[$successor_key]->source_items[$item->path] = $item;
+    }
+
+    // Add the lines-changed information if it has been recorded.
+    // Only a single source item entry should hold this information,
+    // so no emphasis is placed on merging it across multiple source items.
+    if ($item_revision->line_changes_recorded) {
+      $items[$successor_key]->line_changes = array(
+        'added' => $item_revision->line_changes_added,
+        'removed' => $item_revision->line_changes_removed,
+      );
+    }
+  }
+}
+
+/**
+ * Retrieve additional information about the successors of a given set
+ * of items.
+ *
+ * @param $repository
+ *   The repository that the items are located in.
+ * @param $items
+ *   An array of item arrays, for example as returned by
+ *   VersioncontrolOperation::getItems().
+ *
+ * @return
+ *   This function does not have a return value; instead, it alters the
+ *   given item arrays and adds additional information about their successors.
+ *   The following elements will be set for all items whose successor items
+ *   could be retrieved.
+ *
+ *   - 'successor_items': An array with the previous revision(s) of the
+ *        affected item. The key for all items in this array is the respective
+ *        item path, and all of these items will have the 'actions' and
+ *        'source_items' properties (as documented by
+ *        versioncontrol_fetch_source_items()) filled in.
+ *   - 'replaced_by_item': The succeeding but technically unrelated item at the
+ *        same location as the current item. Only exists if the original item
+ *        was deleted and replaced by a the succeeding one that was just moved
+ *        or copied to this location.
+ */
+function versioncontrol_fetch_successor_items($repository, &$items) {
+  if (empty($items)) {
+    return;
+  }
+  $placeholders = array();
+  $ids = array();
+  $item_keys = array();
+
+  foreach ($items as $key => $item) {
+    // If we don't yet know the item_revision_id (required for db queries), try
+    // to retrieve it. If we don't find it, we can't fetch this item's sources.
+    if ($item->fetchItemRevisionId()) {
+      $placeholders[] = '%d';
+      $ids[] = $item->item_revision_id;
+      $item_keys[$item->item_revision_id] = $key;
+    }
+  }
+
+  $result = db_query(
+    'SELECT item_revision_id, source_item_revision_id, action,
+            path, revision, type
+     FROM {versioncontrol_item_revisions}
+     WHERE source_item_revision_id IN ('. implode(',', $placeholders) .')', $ids);
+
+  while ($item_revision = db_fetch_object($result)) {
+    $source_key = $item_keys[$item_revision->source_item_revision_id];
+    if (!isset($items[$source_key]['successor_items'])) {
+      $items[$source_key]['successor_items'] = array();
+    }
+
+    $item = array(
+      'path' => $item_revision->path,
+      'revision' => $item_revision->revision,
+      'type' => $item_revision->type,
+      'item_revision_id' => $item_revision->item_revision_id,
+    );
+    $item['selected_label'] = new stdClass();
+    $item['selected_label']->get_from = 'other_item';
+    $item['selected_label']->other_item = &$items[$source_key];
+    $item['selected_label']->other_item_tags = array('source_item');
+
+    // Insert the item and its associated action into the source item.
+    if ($item_revision->action == VERSIONCONTROL_ACTION_REPLACED) {
+      $items[$source_key]['replaced_by_item'] = $item;
+    }
+    else {
+      if ($item_revision->action == VERSIONCONTROL_ACTION_MERGED) {
+        // If we've got a merge action then there are multiple source items,
+        // the one that we know is not sufficient. (And of course, we won't
+        // return an item with an incomplete 'source_items' property.)
+        // So let's retrieve all of those source items.
+        $successor_items = array($item['path'] => $item);
+        versioncontrol_fetch_source_items($repository, $successor_items);
+        $item = $successor_items[$item['path']];
+      }
+      else { // No "merged" action: the original item is the only source item.
+        $item['action'] = $item_revision->action;
+        $item['source_items'] = array(
+          $items[$source_key]['path'] => $items[$source_key],
+        );
+      }
+      $items[$source_key]['successor_items'][$item['path']] = $item;
+    }
+  }
+}
+
+/**
+ * Retrieve the deepest-level directory path in the repository that is common
+ * to all the given items, e.g. '/src' if there are two items with the paths
+ * '/src/subdir/code.php' and '/src/README.txt', or '/' for items being located
+ * at '/src/README.txt' and '/doc'.
+ *
+ * @param $items
+ *   An array of items of which the common directory path should be retrieved.
+ *
+ * @return
+ *   The common directory path of all given items. If no items were passed,
+ *   the root directory path '/' will be returned.
+ */
+function versioncontrol_get_common_directory_path($items) {
+  if (empty($items)) {
+    return '/';
+  }
+  $paths = _versioncontrol_get_item_paths($items);
+
+  $dirparts = explode('/', dirname(array_shift($paths)));
+
+  foreach ($paths as $path) {
+    $new_dirparts = array();
+    $current_dirparts = explode('/', dirname($path));
+    $mincount = min(count($dirparts), count($current_dirparts));
+
+    for ($i = 0; $i < $mincount; $i++) {
+      if ($dirparts[$i] == $current_dirparts[$i]) {
+        $new_dirparts[] = $dirparts[$i];
+      }
+      else {
+        break;
+      }
+    }
+    $dirparts = $new_dirparts;
+  }
+
+  if (count($dirparts) == 1) {
+    return '/';
+  }
+  return implode('/', $dirparts);
+}
+
+function _versioncontrol_get_item_paths($items) {
+  $paths = array();
+  // Store the paths as keys and return the array_keys() afterwards,
+  // in order to get automatic removal of duplicates.
+  foreach ($items as $item) {
+    $paths[$item['path']] = TRUE;
+  }
+  return array_keys($paths);
+}
+
+/**
+ * Return TRUE if @p $parent_path is a parent directory path of @p $child_path.
+ */
+function versioncontrol_path_contains($parent_path, $child_path) {
+  if ($parent_path == $child_path) {
+    return TRUE;
+  }
+  if ($parent_path != '/') {
+    $parent_path .= '/';
+  }
+  return (strpos($child_path, $parent_path) === 0);
+}
+
+/**
+ * Return a the username of a VCS account.
+ *
+ * @param $uid
+ *   The Drupal user id of the user. If this is 0, the corresponding
+ *   Drupal user naturally can't be retrieved, with all implications for
+ *   displaying the username.
+ * @param $username
+ *   The VCS username for the account.
+ * @param $repository
+ *   The repository where this account is registered.
+ * @param $options
+ *   An array of options that further influence the output format:
+ *
+ *   - 'prefer_drupal_username': By default, this function tries to get the
+ *        corresponding Drupal user for the supplied uid and returns the
+ *        "real" username rather than the given one. If this is set to FALSE,
+ *        the given VCS username is always returned.
+ *   - 'format': By default, the username will be linked to the user page
+ *        (for Drupal users) or to the commit log page containing the user's
+ *        commits (for unassociated accounts). If 'plaintext', the username
+ *        will be returned without markup.
+ *   - 'include_repository_name': By default, an account that is not associated
+ *        to a Drupal user will get the repository name appended in order to
+ *        make for a unique account descriptor. If this option is set to TRUE,
+ *        the repository name will be suppressed anyways.
+ */
+function theme_versioncontrol_account_username($uid, $username, $repository, $options = array()) {
+  $prefer_drupal_username = isset($options['prefer_drupal_username'])
+    ? $options['prefer_drupal_username']
+    : TRUE;
+  $format = isset($options['format']) ? $options['format'] : 'html';
+
+  if ($uid && $prefer_drupal_username) {
+    $user = user_load($uid);
+
+    if ($user && $prefer_drupal_username) {
+      return ($format == 'html') ? theme('username', $user) : $user->name;
+    }
+  }
+
+  if (!empty($options['include_repository_name'])) {
+    $username = t('!user @ !repository', array(
+      '!user' => $username,
+      '!repository' => $repository->name,
+    ));
+  }
+  if ($format == 'html' && module_exists('commitlog')) {
+    $url = url('commitlog', array(
+      'query' => array('username' => $username, 'repo' => $repository['repo_id']),
+    ));
+    return l($username, $url);
+  }
+  return $username;
+}
+
+/**
+ * Return a table of contributors for the specified per-user statistics.
+ *
+ * @param $statistics
+ *   An array of statistics objects as returned by
+ *   versioncontrol_get_operation_statistics(), grouped by at least uid and
+ *   optionally repo_id/username columns.
+ * @param $options
+ *   An array of optional further options. Currently, the only supported
+ *   array key is 'constraints' which contains the operation constraints used
+ *   to determine these statistics. If given, the "Commits" column in the table
+ *   will link to the contributor's commits in addition to displaying the
+ *   commit count.
+ */
+function theme_versioncontrol_user_statistics_table($statistics, $options = array()) {
+  $header = array(t('User'), t('Last commit'), t('First commit'), t('Commits'));
+  $rows = array();
+
+  foreach ($statistics as $user_stats) {
+    $last_operation_date = t('!time ago', array(
+      '!time' => format_interval(time() - $user_stats->last_operation_date, 1),
+    ));
+    $first_operation_date = t('!time ago', array(
+      '!time' => format_interval(time() - $user_stats->first_operation_date, 1),
+    ));
+    $total_operations = format_plural(
+      $user_stats->total_operations, '1 commit', '@count commits'
+    );
+
+    if (isset($options['constraints']) && module_exists('commitlog')) {
+      if (isset($user_stats->repo_id) && isset($user_stats->username)) {
+        $options['constraints']['repo_ids'] = array($user_stats->repo_id);
+        $options['constraints']['usernames'] = array($user_stats->username);
+      }
+      else {
+        $options['constraints']['uids'] = array($user_stats->uid);
+      }
+      $total_operations = l($total_operations, commitlog_get_url($options['constraints']));
+    }
+
+    $rows[] = array(
+      theme('versioncontrol_user_statistics_account', $user_stats),
+      $last_operation_date,
+      $first_operation_date,
+      $total_operations,
+    );
+  }
+  return theme('table', $header, $rows);
+}
+
+/**
+ * Return a condensed item list of contributors for the specified per-user
+ * statistics. An empty string is returned if the given array is empty.
+ *
+ * @param $statistics
+ *   An array of statistics objects as returned by
+ *   versioncontrol_get_operation_statistics(), grouped by at least uid and
+ *   optionally repo_id/username columns.
+ */
+function theme_versioncontrol_user_statistics_item_list($statistics, $more_link = NULL) {
+  $items = array();
+
+  if (empty($statistics)) {
+    return '';
+  }
+  drupal_add_css(drupal_get_path('module', 'versioncontrol') . '/versioncontrol.css');
+
+  foreach ($statistics as $user_stats) {
+    $item = '<div class="versioncontrol-committer-item">';
+    $item .= t('!committer - !commit-count', array(
+      '!committer' => theme('versioncontrol_user_statistics_account', $user_stats),
+      '!commit-count' => '<span class="versioncontrol-commit-count">'
+        . format_plural($user_stats->total_operations, '1 commit', '@count commits')
+        . '</span>',
+    ));
+
+    if (!empty($user_stats->first_operation_date)) { // has committed yet?
+      $item .= '<div class="versioncontrol-commit-times">';
+      $item .= t('last: !last_time ago, first: !first_time ago', array(
+        '!last_time' => format_interval(time() - $user_stats->last_operation_date, 1),
+        '!first_time' => format_interval(time() - $user_stats->first_operation_date, 1),
+      ));
+      $item .= '</div>';
+    }
+    $item .= '</div>';
+    $items[] = $item;
+  }
+
+  $output = theme('item_list', $items);
+  if (!empty($more_link)) {
+    $output .= $more_link;
+  }
+  return $output;
+}
+
+/**
+ * Given a single statistics object (including uid for the Drupal user and
+ * optionally a repo_id/username combination), return a themed version of the
+ * corresponding user.
+ */
+function theme_versioncontrol_user_statistics_account($user_stats) {
+  if (isset($user_stats->repo_id) && isset($user_stats->username)) {
+    $repository = versioncontrol_repository_load($user_stats->repo_id);
+    return theme('versioncontrol_account_username',
+      $user_stats->uid, $user_stats->username, $repository,
+      array('include_repository_name' => TRUE)
+    );
+  }
+  else {
+    $committer = user_load($user_stats->uid);
+    return theme('username', $committer);
+  }
+}
+
+
+/**
+ * Implementation of hook_block():
+ * Present a list of the most active developers.
+ */
+function versioncontrol_block($op = 'list', $delta = 0) {
+  if ($op == 'list') {
+    $blocks = array();
+    $blocks['site_active_developers'] = array(
+      'info' => t('Version Control API: Most active developers'),
+      'cache' => BLOCK_CACHE_GLOBAL,
+    );
+    return $blocks;
+  }
+  elseif ($op == 'view') {
+    if ($delta == 'site_active_developers') {
+      return versioncontrol_block_site_active_developers();
+    }
+  }
+}
+
+function versioncontrol_get_views_sets() {
+  $sets = &ctools_static('versioncontrol_views_sets_assembled', array());
+  $db_set_data = &ctools_static('versioncontrol_views_sets_db_data', array());
+
+  // Only build the set list if it's empty.
+  if (empty($sets)) {
+    ctools_include('plugins');
+    // get all the site-specific settings stored in the db
+    $result = db_select('versioncontrol_views_sets', 'base')
+      ->fields('base')
+      ->execute();
+
+    // Store the db-retrieved data in a static var; we need to source it later.
+    foreach ($result as $row) {
+      if (empty($db_set_data[$row->views_set])) {
+        $db_set_data[$row->views_set] = array();
+      }
+      $db_set_data[$row->views_set][$row->vcs] = $row->view_name;
+    }
+
+    // Grab all available views set plugins.
+    $plugins = ctools_get_plugins('versioncontrol', 'views_sets');
+    foreach ($plugins as $plugin_name => $plugin_definition) {
+      $class = ctools_plugin_get_class($plugin_definition, 'handler');
+      $sets[$plugin_name] = new $class();
+    }
+
+    $backends = versioncontrol_get_backends();
+
+    // Process each set.
+    foreach ($sets as $set_name => $handler) {
+      $set = array();
+
+      // Process each backend.
+      foreach ($backends as $vcs => $backend) {
+        // Attach defaults set by the backends themselves, if they exist.
+        if (!empty($backend->defaultViews[$set_name])) {
+          $set[$vcs] = $backend->defaultViews[$set_name];
+        }
+        // Allow hook implementors to specify defaults, too.
+        if ($handler->getDefaultViews($vcs)) {
+          $set[$vcs] = $handler->getDefaultViews($vcs);
+        }
+      }
+
+      // Merge the db values overtop of all defaults
+      if (!empty($db_set_data[$set_name])) {
+        $set = array_merge($set, $db_set_data[$set_name]);
+      }
+
+      $handler->setSet($set);
+    }
+  }
+
+  return $sets;
+}
+
+function versioncontrol_get_views_set($set) {
+  $sets = versioncontrol_get_views_sets();
+  if (!empty($sets[$set])) {
+    return $sets[$set];
+  }
+  return FALSE;
+}
+
+/**
+ * Return preset values for strings that are used in the user interface.
+ */
+function _versioncontrol_get_string_presets() {
+  $presets = array();
+
+  $presets['versioncontrol_registration_message_unauthorized'] = t('<p>The Concurrent Versioning System (CVS) is a software development tool available to volunteers with experience in software development, translation, theming, or documentation who wish to participate in the Drupal project.</p>
+<p>To request access to the Drupal CVS repository you must <a href="!register">create an account</a> and <a href="!login">login</a>. Come back to this page after you have logged on.</p>',
+    array('!register' => url('user/register'), '!login' => url('user/login'))
+  );
+
+  $presets['versioncontrol_registration_message_authorized'] = t('<p>The Concurrent Versioning System (CVS) is a software development tool available to volunteers with experience in software development, translation, theming, or documentation who wish to participate in the Drupal project.</p>
+<p>A version control system account is not required to contribute patches to the Drupal project or community contributed projects. Anonymous access to the Drupal CVS repository is available which can be used to accomplish this. Please peruse the <a href="!handbook">CVS handbook</a> and <a href="!patch">patch guide</a> for more information.</p>
+<p>If you are an open source software developer, themer, translator or documentation writer, please choose one of Drupal\'s repositories from the selection below in order to request commit access to this repository. Prior to applying, please ensure that:</p>
+<ul>
+  <li>you have a concrete idea as to what you intend to contribute.</li>
+  <li>you are not duplicating any <a href="!projects">existing projects</a>.</li>
+</ul>',
+    array('!projects' => url('project'), '!handbook' => url('handbook/cvs'), '!patch' => url('patch'))
+  );
+
+  $presets['versioncontrol_registration_message_repository'] = t('<p>The Concurrent Versioning System (CVS) is a software development tool available to volunteers with experience in software development, translation, theming, or documentation who wish to participate in the Drupal project.</p>
+<p>A version control system account is not required to contribute patches to the Drupal project or community contributed projects. Anonymous access to the Drupal CVS repository is available which can be used to accomplish this. Please peruse the <a href="!handbook">CVS handbook</a> and <a href="!patch">patch guide</a> for more information.</p>
+<p>If you are an open source software developer, themer, translator or documentation writer, please use the form below to create an account in Drupal\'s CVS repository. Prior to registering, please ensure that:</p>
+<ul>
+  <li>you have a concrete idea as to what you intend to contribute.</li>
+  <li>you are not duplicating any <a href="!projects">existing projects</a>.</li>
+</ul>',
+    array('!projects' => url('project'), '!handbook' => url('handbook/cvs'), '!patch' => url('patch'))
+  );
+
+  return $presets;
+}
+
+/**
+ * Implementation of ctools hook_ctools_plugin_directory().
+ */
+function versioncontrol_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'versioncontrol') {
+    return "includes/plugins/$plugin";
+  }
+}
+
+/**
+ * Load the names of all 'user_mapping_methods' for use at forms.
+ */
+function versioncontrol_user_mapping_methods_get_names() {
+  ctools_include('plugins');
+
+  $names = array();
+  foreach (ctools_get_plugins('versioncontrol', 'user_mapping_methods') as $name => $plugin) {
+    $names[$name] = $plugin['title'];
+  }
+
+  asort($names);
+  return $names;
+}
+
+/**
+ * Load the names of all 'auth_handlers' for use at forms.
+ */
+function versioncontrol_auth_handlers_get_names() {
+  ctools_include('plugins');
+
+  $names = array();
+  foreach (ctools_get_plugins('versioncontrol', 'vcs_auth') as $name => $plugin) {
+    $names[$name] = $plugin['title'];
+  }
+
+  asort($names);
+  return $names;
+}
+
+/**
+ * Load the names of all 'webviewer_url_handlers' for use at forms.
+ */
+function versioncontrol_webviewer_url_handlers_get_names($vcs='') {
+  ctools_include('plugins');
+
+  $names = array();
+  foreach (ctools_get_plugins('versioncontrol', 'webviewer_url_handlers') as $name => $plugin) {
+    if (!empty($vcs)) {
+      if ($plugin['vcs'] == $vcs) {
+        $names[$name] = $plugin['title'];
+      }
+    }
+    else {
+      $names[$name] = $plugin['title'];
+    }
+  }
+
+  asort($names);
+  return $names;
+}
+
+/**
+ * Helper function for handlin plugin settings.
+ */
+function versioncontrol_plugins_get_information() {
+  return array(
+    'repository'  => array(
+      'user_mapping_methods'   => array(
+        'name' => t('User mapping methods'),
+        'fetcher' => 'versioncontrol_user_mapping_methods_get_names',
+        'default_variable' => 'versioncontrol_repository_plugin_default_user_mapping_methods',
+      ),
+      'vcs_auth'               => array(
+        'name' => t('Versioncontrol authentication'),
+        'fetcher' => 'versioncontrol_auth_handlers_get_names',
+        'default_variable' => 'versioncontrol_repository_plugin_default_auth_handler',
+      ),
+      'webviewer_url_handlers' => array(
+        'name' => t('Webviewer URL handler'),
+        'fetcher' => 'versioncontrol_webviewer_url_handlers_get_names',
+        'default_variable' => 'versioncontrol_repository_plugin_default_webviewer_url_handler',
+      )
+    ),
+    'view' => array(
+      'view_sets' => array(
+        'name' => t('View sets'),
+        'fetcher' => FALSE,
+        'default_variable' => FALSE,
+      ),
+    ),
+  );
+}

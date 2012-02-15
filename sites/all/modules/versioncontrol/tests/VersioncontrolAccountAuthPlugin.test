@@ -1,0 +1,173 @@
+<?php
+/**
+ * @file
+ * Unit test ensuring the parent of the 'account' family of auth plugins behaves
+ * correctly.
+ */
+require_once drupal_get_path('module', 'versioncontrol') . '/tests/VersioncontrolTestCase.test';
+
+class VersioncontrolAccountAuthPlugin extends VersioncontrolTestCase {
+
+  protected $repos    = array();
+  protected $tags     = array();
+  protected $branches = array();
+
+  /**
+   * Implementation of getInfo().
+   */
+  public static function getInfo() {
+    return array(
+      'name' => t('Account authentication plugin testing'),
+      'description' => t("Test the base 'account' auth plugin's CRUD and authorization logic."),
+      'group' => t('Version Control API'),
+    );
+  }
+
+  /**
+   * Implementation of setUp().
+   */
+  function setUp() {
+    $this->useBackends = self::BACKENDS_ALL;
+    parent::setUp();
+
+    // Create and login the admin user
+    $admin_user = $this->drupalCreateUser(array('administer version control systems'));
+    $this->drupalLogin($admin_user);
+
+    $repo_data = array(
+      'plugins' => array(
+        'auth_handler' => 'account'
+      ),
+    );
+
+    foreach ($this->backends as $backend_machine_name => $backend) {
+      $repo = $this->versioncontrolCreateRepository($backend_machine_name, $repo_data);
+      $this->repos[$backend_machine_name] = $repo;
+      // add some more dummy data related to each repo
+      $label_default_data = array('repo_id' => $repo->repo_id);
+      $this->branches[$repo->repo_id][0] = $this->versioncontrolCreateBranch($backend_machine_name, $label_default_data);
+      $this->branches[$repo->repo_id][1] = $this->versioncontrolCreateBranch($backend_machine_name, $label_default_data);
+      $this->branches[$repo->repo_id][2] = $this->versioncontrolCreateBranch($backend_machine_name, $label_default_data);
+      $this->branches[$repo->repo_id][3] = $this->versioncontrolCreateBranch($backend_machine_name, $label_default_data);
+      $this->tags[$repo->repo_id][0] = $this->versioncontrolCreateTag($backend_machine_name, $label_default_data);
+      $this->tags[$repo->repo_id][1] = $this->versioncontrolCreateTag($backend_machine_name, $label_default_data);
+      $this->tags[$repo->repo_id][2] = $this->versioncontrolCreateTag($backend_machine_name, $label_default_data);
+      $this->tags[$repo->repo_id][3] = $this->versioncontrolCreateTag($backend_machine_name, $label_default_data);
+    }
+  }
+
+  /**
+   * Helper to get user data.
+   */
+  protected function getMappedAccountsAuthPluginUserData($repo_id) {
+      return array(
+        'access' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+        'branch_create' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+        'branch_update' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+        'branch_delete' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+        'tag_create' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+        'tag_update' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+        'tag_delete' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+        'per-label' => array(
+          $this->branches[$repo_id][0]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+          ),
+          $this->branches[$repo_id][1]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+          ),
+          $this->branches[$repo_id][2]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+          ),
+          $this->branches[$repo_id][3]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+          ),
+          $this->tags[$repo_id][0]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+          ),
+          $this->tags[$repo_id][1]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+          ),
+          $this->tags[$repo_id][2]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::GRANT,
+          ),
+          $this->tags[$repo_id][3]->label_id => array(
+            'label_update' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+            'label_delete' => VersioncontrolAuthHandlerMappedAccounts::DENY,
+          ),
+        ),
+      );
+  }
+
+  public function testMappedAccountsAuthPluginCrud() {
+    foreach ($this->repos as $backend_machine_name => $repo) {
+      // Manually instantiate the plugin for the create portion
+      $class_name = ctools_plugin_load_class('versioncontrol', 'vcs_auth', 'account', 'handler');
+      $authplug = new $class_name();
+      $authplug->setRepository($repo);
+
+      // Add one auth account row
+      $super_user = $this->drupalCreateUser();
+      $super_user_data = $this->getMappedAccountsAuthPluginUserData($repo->repo_id);
+      $authplug->setUserData($super_user->uid, $super_user_data);
+      $authplug->save();
+
+      // Now load the plugin using the provided method and retrieve the user data,
+      // ensure it's what we sent in
+      $db_authplug = $repo->getAuthHandler();
+      $db_data = $db_authplug->getUserData($super_user->uid);
+      $at_input = array_diff($super_user_data, $db_data);
+      $this->assertTrue(empty($at_input), 'Authentication account database data is included on provided data');
+      // add uid and repo_id for the comparison(db info autoreturns them, but we set them indirectly)
+      $super_user_data['uid'] = $super_user->uid;
+      $super_user_data['repo_id'] = $repo->repo_id;
+      $at_db = array_diff($db_data, $super_user_data);
+      $this->assertTrue(empty($at_db), 'Authentication account provided data is included on database data');
+
+      // Now try test  logic
+      $authplug = $repo->getAuthHandler();
+      $branches = $repo->loadBranches(array(
+        $this->branches[$repo->repo_id][0]->label_id,
+        $this->branches[$repo->repo_id][1]->label_id,
+        $this->branches[$repo->repo_id][2]->label_id,
+        $this->branches[$repo->repo_id][3]->label_id,
+      ));
+      $tags = $repo->loadTags(array(
+        $this->tags[$repo->repo_id][0]->label_id,
+        $this->tags[$repo->repo_id][1]->label_id,
+        $this->tags[$repo->repo_id][2]->label_id,
+        $this->tags[$repo->repo_id][3]->label_id,
+      ));
+      // global
+      $this->assertTrue($authplug->authAccess($super_user->uid), 'global auth validate correctly');
+      // branches
+      $test_branch = $this->versioncontrolCreateBranch($backend_machine_name, array(), FALSE);
+      $this->assertFalse($authplug->authBranchCreate($super_user->uid, $test_branch), 'branch create validate correctly');
+      $test_tag = $this->versioncontrolCreateTag($backend_machine_name, array(), FALSE);
+      $this->assertFalse($authplug->authTagCreate($super_user->uid, $test_tag), 'tag create validate correctly');
+      $this->assertTrue($authplug->authBranchUpdate($super_user->uid, $this->branches[$repo->repo_id][0]), 'granular branch update validate correctly');
+      $this->assertTrue($authplug->authBranchDelete($super_user->uid, $this->branches[$repo->repo_id][0]), 'granular branch delete validate correctly');
+      $this->assertTrue($authplug->authBranchUpdate($super_user->uid, $this->branches[$repo->repo_id][1]), 'granular branch update validate correctly');
+      $this->assertFalse($authplug->authBranchDelete($super_user->uid, $this->branches[$repo->repo_id][1]), 'granular branch delete validate correctly');
+      $this->assertFalse($authplug->authBranchUpdate($super_user->uid, $this->branches[$repo->repo_id][2]), 'granular branch update validate correctly');
+      $this->assertTrue($authplug->authBranchDelete($super_user->uid, $this->branches[$repo->repo_id][2]), 'granular branch delete validate correctly');
+      $this->assertFalse($authplug->authBranchUpdate($super_user->uid, $this->branches[$repo->repo_id][3]), 'granular branch update validate correctly');
+      $this->assertFalse($authplug->authBranchDelete($super_user->uid, $this->branches[$repo->repo_id][3]), 'granular branch delete validate correctly');
+      // tags
+      $this->assertTrue($authplug->authTagUpdate($super_user->uid, $this->tags[$repo->repo_id][0]), 'granular tag update validate correctly');
+      $this->assertTrue($authplug->authTagDelete($super_user->uid, $this->tags[$repo->repo_id][0]), 'granular tag delete validate correctly');
+      $this->assertTrue($authplug->authTagUpdate($super_user->uid, $this->tags[$repo->repo_id][1]), 'granular tag update validate correctly');
+      $this->assertFalse($authplug->authTagDelete($super_user->uid, $this->tags[$repo->repo_id][1]), 'granular tag delete validate correctly');
+      $this->assertFalse($authplug->authTagUpdate($super_user->uid, $this->tags[$repo->repo_id][2]), 'granular tag update validate correctly');
+      $this->assertTrue($authplug->authTagDelete($super_user->uid, $this->tags[$repo->repo_id][2]), 'granular tag delete validate correctly');
+      $this->assertFalse($authplug->authTagUpdate($super_user->uid, $this->tags[$repo->repo_id][3]), 'granular tag update validate correctly');
+      $this->assertFalse($authplug->authTagDelete($super_user->uid, $this->tags[$repo->repo_id][3]), 'granular tag delete validate correctly');
+    }
+  }
+}

@@ -1,0 +1,1367 @@
+<?php
+/**
+ * @file
+ * Version Control API - An interface to version control systems
+ * whose functionality is provided by pluggable back-end modules.
+ *
+ * Copyright 2006 by Karthik ("Zen", http://drupal.org/user/21209)
+ * Copyright 2006, 2007 by Derek Wright ("dww", http://drupal.org/user/46549)
+ * Copyright 2007, 2008, 2009 by Jakob Petsovits ("jpetso", http://drupal.org/user/56020)
+ */
+
+/**
+ * Implementation of hook_schema().
+ */
+function versioncontrol_schema() {
+  $schema['versioncontrol_operations'] = array(
+    'description' => 'The combined table for commit, branch and tag operations.',
+    'fields' => array(
+      'vc_op_id' => array(
+        'description' => 'Unique identifier for each operation in this table. Does not necessarily correspond to chronological order in any way.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'type' => array(
+        'description' =>
+          'Operation type as specified by the backend: either of VERSIONCONTROL_OPERATION_COMMIT, VERSIONCONTROL_OPERATION_BRANCH or VERSIONCONTROL_OPERATION_TAG. (For version control systems like Subversion that need to emulate branches and tags, this will still be VERSIONCONTROL_OPERATION_COMMIT - the "intended" meaning is stored as associated label action.)',
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key (referring to {versioncontrol_repositories}.repo_id) for the repository that was affected by the operation.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'author_date' => array(
+        'description' => 'Date/time when the operation was created, as Unix timestamp.',
+        'type' => 'int',
+        'size' => 'big',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'committer_date' => array(
+        'description' => 'Date/time when the operation was added to the repository, as Unix timestamp.',
+        'type' => 'int',
+        'size' => 'big',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'author' => array(
+        'description' => 'VCS specific username of the user who is the original author of this operation. For centralized version control systems this and committer are the same.',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'author_uid' => array(
+        'description' =>
+          'The {users}.uid for the Drupal user who authored this commit, corresponding to the value in {versioncontrol_operations}.author. If no such association can be found, then 0.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'committer' => array(
+        'description' => 'VCS specific username of the user who committed this operation. For distributed version control systems, this should be the author, not the committer. For centralized version control systems this and author are the same.',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'committer_uid' => array(
+        'description' =>
+          'The {users}.uid for the Drupal user who made this commit (but perhaps was not the author), corresponding to the value in {versioncontrol_operations}.committer. If no such association can be found, then 0.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'revision' => array(
+        'description' => 'VCS specific global revision identifier, like "1234" for Subversion or some SHA-1 hash for various distributed version control systems. Empty string if the VCS does not support atomic commits / global revisions.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'message' => array(
+        'description' =>
+          'Log message. Might be empty for branch and tag operations, depending on the version control system\'s capabilities. Should really not be empty for commit messages, except for the super-evil case when the commit author is sloppy enough not to enter one *and* the VCS allows that to happen.',
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+    ),
+    'indexes' => array(
+      'type' => array('type'),
+      'repo_id' => array('repo_id'),
+      'author_date' => array('author_date'),
+      'committer_date' => array('committer_date'),
+      'author' => array('author'),
+      'author_uid' => array('author_uid'),
+      'committer' => array('committer'),
+      'committer_uid' => array('committer_uid'),
+      'revision' => array('revision'),
+    ),
+    'primary key' => array('vc_op_id'),
+  );
+
+  $schema['versioncontrol_operation_labels'] = array(
+    'description' =>
+      'This table contains information about which branches and/or tags (= labels, referred to by the label_id) have been affected by an operation (vc_op_id), and how they\'ve been affected (action). Let\'s refer to that combination as "label action".
+
+      Commit operations might not have any label associated, which happens e.g. for SVN commits outside of /trunk, /tags and /branches (or if labels are neither natively supported nor emulated).
+
+      Possible label actions are:
+      - Commit: commit operation, label is a branch, action == VERSIONCONTROL_ACTION_MODIFIED
+      - Native branch/tag creation: branch or tag operation, label has the
+          same type as the operation, action == VERSIONCONTROL_ACTION_ADDED
+      - Native branch/tag deletion: branch or tag operation, label has the
+          same type as the operation, action == VERSIONCONTROL_ACTION_DELETED
+      - Emulated branch/tag creation or deletion (think of SVN branches and
+          tags): commit operation, any label type, action is the same as for
+          native creations/deletions.',
+    'fields' => array(
+      'vc_op_id' => array(
+        'description' => 'Foreign key (referring to {versioncontrol_operations}.vc_op_id) for the operation that affected the given label(s).',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'label_id' => array(
+        'description' => 'Foreign key (referring to {versioncontrol_labels}.label_id) for the affected label.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'action' => array(
+        'description' =>
+          'Specifies how the label was affected, see the {versioncontrol_operation_labels} table description for details on the semantics. Possible values are VERSIONCONTROL_ACTION_MODIFIED, VERSIONCONTROL_ACTION_ADDED and VERSIONCONTROL_ACTION_DELETED.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('vc_op_id', 'label_id'),
+  );
+
+  // Make {versioncontrol_labels}.name case sensitive for mysql (postgres
+  // cannot). Re-think this for D7, sqlite3 support collation too.
+  $name_spec = array(
+    'description' => 'Name of the label, e.g. "HEAD", "master", "DRUPAL-6--1" or "6.x-1.0".',
+    'type' => 'varchar',
+    'not null' => TRUE,
+    'default' => '',
+  );
+  if (in_array($GLOBALS['db_type'], array('mysql', 'mysqli'))) {
+    // This is evil, but there is not standard way to change a field collation.
+    $name_spec['mysql_type'] = "VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_bin";
+  }
+  else {
+    $name_spec['length'] = 255;
+  }
+
+  $schema['versioncontrol_labels'] = array(
+    'description' =>
+      'This table stores information about branches and tags (= labels) that exist in a repository. While there might be multiple operations involving the same branch/tag (see also {versioncontrol_operation_labels}, e.g. "create DRUPAL-6--1-0 tag for the files in project 1", "create DRUPAL-6--1-0 tag for the files in project 2", "delete DRUPAL-6--1-0 tag for the files in project 2 again"), there is only one row in this table that represents this label ("DRUPAL-6--1-0" in the above example).',
+    'fields' => array(
+      'label_id' => array(
+        'description' => 'Unique identifier for a branch or tag in this label, equivalent to the (also unique) repo_id/name/type combination in the same row.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key (referring to {versioncontrol_repositories}.repo_id) for the repository that this label is located in.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'name' => $name_spec,
+      'type' => array(
+        'description' =>
+          'Whether this label is a branch or a tag. Consequently, this can be either VERSIONCONTROL_LABEL_BRANCH or VERSIONCONTROL_LABEL_TAG.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'unique keys' => array(
+      'repo_id_name_type' => array('repo_id', 'name', 'type'),
+    ),
+    'primary key' => array('label_id'),
+  );
+
+  $schema['versioncontrol_item_revisions'] = array(
+    'description' =>
+      'This table contains all known different versions of a file or directory item. For version control systems using global revisions, only the revisions should be recorded in here when the item was actually changed, i.e. part of a commit operation. (Not every revision needs to have all associated items recorded in here, that would be insane.) Non-versioned items, such as directories in CVS or Git, should not be recorded in this table.',
+    'fields' => array(
+      'item_revision_id' => array(
+        'description' =>
+          'Unique identifier for this item revision. The same item in a different revision gets a different item_revision_id. Equivalent to the (also unique) repo_id/path/revision combination in the same row.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'vc_op_id' => array(
+        'description' => 'Foreign key (referring to {versioncontrol_operations}.vc_op_id) for the operation that affected the given item(s).',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key (referring to {versioncontrol_repositories}.repo_id) for the repository that this item is located in.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'path' => array(
+        'description' =>
+          'Path of the item, relative to the repository root. Always starts with a slash, and never ends with one (not even if the item is a directory). Examples: "/" (root directory), "/contributions", "/sandbox/jpetso/evil-plans.txt". The slash is only used for separating the parts of the path, so it is safe to use explode("/", $path).',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'revision' => array(
+        'description' =>
+          '(File-level) revision of the item, such as "1.12.4.3" for CVS. If the version control system supports global revisions, this should contain the same revision as the "revision" property of the associated commit operation. Contrary to {versioncontrol_operations}.revision which may be empty, this column must always contain a revision because every changed item has a revision assigned. (If it lacks a revision, it should not be recorded as operation item in the first place.)',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'type' => array(
+        'description' =>
+          'Specifies whether the item is a file or directory, and whether it exists or is deleted. Deleted items might exist for real, such as in CVS repositories (the "Attic") or they might just be recorded as part of a commit operation where the item was deleted, even though the version control system does not know about this revision. In Version Control API, deleted items only exist for display purposes, backends are expected not to retrieve information about them other than item history. Possible values for the item type are VERSIONCONTROL_ITEM_FILE, VERSIONCONTROL_ITEM_FILE_DELETED, VERSIONCONTROL_ITEM_DIRECTORY and VERSIONCONTROL_ITEM_DIRECTORY_DELETED. Usually though, API users should only use the functions VersioncontrolItem::isFile(), VersioncontrolItem::isDirectory() and VersioncontrolItem::isDeleted() for testing these constants.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'source_item_revision_id' => array(
+        'description' =>
+          'Foreign key for the source item - also referring to {versioncontrol_item_revisions}.item_revision_id, but to a different one than this {versioncontrol_item_revisions}.item_revision_id. Contains 0 if the action is VERSIONCONTROL_ACTION_ADDED.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'action' => array(
+        'description' =>
+          'Action that was performed while transforming the source item into the successor item. Can be one of the VERSIONCONTROL_ACTION_* values listed at the top of versioncontrol.module.
+
+          The VERSIONCONTROL_ACTION_DELETED and VERSIONCONTROL_ACTION_REPLACED actions are considered to be the end in the history of an item, no further successors than the current one should be retrieved. (For VERSIONCONTROL_ACTION_DELETED, item_revision_id links to a deleted item. For VERSIONCONTROL_ACTION_REPLACED, item_revision_id links to a different item at the same path that replaced the item specified by source_item_revision_id.
+
+          Likewise, the VERSIONCONTROL_ACTION_ADDED action is considered the beginning, with source_item_revision_id being 0 in that case.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'line_changes_added' => array(
+        'description' =>
+          'If possible, this column contains the amount of lines that was added to the file compared to its source revision. (Equivalent to the "plus" lines in a unified diff.)',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'line_changes_removed' => array(
+        'description' =>
+          'If possible, this column contains the amount of lines that was removed from the file compared to its source revision. (Equivalent to the "minus" lines in a unified diff.)',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    // Key too long, cannot create an index for this unique key.
+    //'unique keys' => array(
+    //  'repo_id_path_revision' => array('repo_id', 'path', 'revision'),
+    //),
+    // So instead, we roll two separate indexes.
+    'indexes' => array(
+      'repo_id_path' => array('repo_id', 'path'),
+      'vc_op_id' => array('vc_op_id'),
+      'revision' => array('revision'),
+      'source_item_revision_id' => array('source_item_revision_id'),
+    ),
+    'primary key' => array('item_revision_id'),
+  );
+
+  $schema['versioncontrol_repositories'] = array(
+    'description' => 'This table contains the set of repositories known to the Version Control API.',
+    'fields' => array(
+      'repo_id' => array(
+        'description' => 'Primary key, the unique identifier for the repository.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'description' => 'User visible name of the repository, to be run through check_plain().',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'vcs' => array(
+        'description' => 'Unique string identifier of the backend, e.g. "cvs", "svn" or "git".',
+        'type' => 'varchar',
+        'length' => 8,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'root' => array(
+        'description' => 'Root URL/path of the repository, to be interpreted by the VCS backend when it interfaces with the repository.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'authorization_method' => array(
+        'description' => 'Unique string identifier of the authorization method. (For more information on authorization methods, see hook_versioncontrol.php for functions marked with "@ingroup Authorization".)',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'updated' => array(
+        'description' => 'The Unix timestamp when this repository was last updated.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0
+      ),
+      'update_method' => array(
+        'description' => 'The method that this repository will use to update the operations table.  This should correspond to constants provided by the backend provider.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 1
+      ),
+      'locked' => array(
+        'description' => 'Timestamp-based semaphore. If 0, repository is unlocked. Otherwise, a UNIX epoch timestamp indicating when this repository was last locked.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'data' => array(
+        'description' => t('A serialized array of additional per-repository settings, mostly populated by backends.'),
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => TRUE,
+        'serialize' => TRUE,
+      ),
+      'plugins' => array(
+        'description' => t('The list of ctools plugins associated with this repository.'),
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => TRUE,
+        'serialize' => TRUE,
+      ),
+    ),
+    'primary key' => array('repo_id'),
+  );
+
+  $schema['versioncontrol_auth_account'] = array(
+    'description' => 'ACL table, used by the VersioncontrolAuthHandlerMappedAccounts family of plugins, that stores ACL data on a per-uid/per-repo basis.',
+    'fields' => array(
+      'uid' => array(
+        'description' => 'Foreign key to {users}.uid; uniquely identifies a Drupal user to whom this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key to {versioncontrol_repositories}.repo_id; identifies the repository to which this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'access' => array(
+        'type' => 'int',
+        'description' => 'Base, global access to the repository. 0 indicates no access (disabled/inactive account; acts as a global deny), 1 indicates some level of access, 2 indicates global access (overrides granular access).',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'branch_create' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to create branches in the repository.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'branch_update' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to update/write to any branch in the repository. 1 is global access, 0 defers to individual branch perms.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'branch_delete' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to delete any branch in the repository. 1 is global access, 0 defers to individual branch perms.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'tag_create' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to create tags in the repository.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'tag_update' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to update/modify any tag in the repository. 1 is global access, 0 defers to individual tag perms.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'tag_delete' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to delete tags in the repository. 0 is no access, 1 is some access, 2 can delete all tags.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('repo_id', 'uid'),
+  );
+  $schema['versioncontrol_auth_account_label'] = array(
+    'description' => '',
+    'fields' => array(
+      'uid' => array(
+        'description' => 'Foreign key to {users}.uid; uniquely identifies a Drupal user to whom this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key to {versioncontrol_repositories}.repo_id; identifies the repository to which this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'label_id' => array(
+        'description' => 'Foreign key to {versioncontrol_labels}.label_id; identifies the label (branch or tag) to which this ACL data applies.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'label_update' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to update/modify this label.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'label_delete' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to delete this label.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('repo_id', 'uid', 'label_id'),
+    'indexes' => array(
+      'label_id' => array('label_id'),
+    ),
+  );
+
+  $schema['versioncontrol_views_sets'] = array(
+    'description' => 'System names of views to be used for particular views sets, per-backend, as configured in the UI. Settings stored here will override those specified by backends, if any.',
+    'fields' => array(
+      'views_set' => array(
+        'description' => 'The string identifying this view set, as defined in implementations of hook_versioncontrol_views_sets().',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+      ),
+      'vcs' => array(
+        'description' => 'Unique string identifier of the backend, e.g. "cvs", "svn" or "git".',
+        'type' => 'varchar',
+        'length' => 8,
+        'not null' => TRUE,
+      ),
+      'view_name' => array(
+        'description' => 'The system name of the view to be used for this set/backend combination.',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('views_set', 'vcs'),
+  );
+
+  $schema['versioncontrol_event_log'] = array(
+    'description' => 'A log of all human interaction events in all repositories. Its primary use is providing the base data required for modules like Activity. This table contains at least some original, non-derived data and as such cannot be safely flushed, unlike some of the other core versioncontrol tables.
+    Backends are expected to implement their own tables joining label and commit information against this event bank, as structural variances across backends are too great to be well accounted-for in a fixed schema.',
+    'fields' => array(
+      'elid' => array(
+        'description' => 'Serial primary key uniquely identifying each event.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key to {versioncontrol_repositories}.repo_id; identifies the repository from which this activity data derives.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'Foreign key to {users}.uid; uniquely identifies the Drupal user responsible for this event.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'timestamp' => array(
+        'description' => 'The Unix timestamp of when the event occurred.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('elid'),
+    'indexes' => array(
+      'repo_id' => array('repo_id'),
+      'uid' => array('uid'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implementation of hook_install().
+ */
+function versioncontrol_install() {
+  // Create tables.
+  drupal_install_schema('versioncontrol');
+}
+
+/**
+ * Implementation of hook_enable().
+ */
+function versioncontrol_enable() {
+  // Clear all cache as recommended by autoload.
+  cache_clear_all();
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function versioncontrol_uninstall() {
+  $variables = array(
+    'versioncontrol_email_address',
+    'versioncontrol_registration_message_unauthorized',
+    'versioncontrol_registration_message_authorized',
+  );
+  foreach ($variables as $variable) {
+    variable_del($variable);
+  }
+
+  // Remove tables.
+  drupal_uninstall_schema('versioncontrol');
+}
+
+
+// Update functions. To be named versioncontrol_update_xyzz(), where x is the
+// major version of Drupal core, y is the major version of Version Control API
+// for this version of Drupal core, and zz is a consecutive number.
+
+// versioncontrol_update_9() was the last update on Drupal 5.x (-2.x).
+
+/**
+ * Original update from 5.x-2.x to 6.x-2.x:
+ * Change 5.x pure integer types to 6.x serial types.
+ */
+function versioncontrol_update_6100() {
+  $ret = array();
+
+  // Auto-increment fields don't like 0 values.
+  // So let's remove the "empty" item and implement it in some other way.
+  $ret = update_sql('DELETE FROM {versioncontrol_item_revisions}
+                      WHERE item_revision_id = 0');
+
+  db_drop_primary_key($ret, 'versioncontrol_operations');
+  db_change_field($ret, 'versioncontrol_operations', 'vc_op_id', 'vc_op_id',
+    array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+    array('primary key' => array('vc_op_id'))
+  );
+  db_drop_primary_key($ret, 'versioncontrol_labels');
+  db_change_field($ret, 'versioncontrol_labels', 'label_id', 'label_id',
+    array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+    array('primary key' => array('label_id'))
+  );
+  db_drop_primary_key($ret, 'versioncontrol_item_revisions');
+  db_change_field($ret, 'versioncontrol_item_revisions', 'item_revision_id', 'item_revision_id',
+    array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+    array('primary key' => array('item_revision_id'))
+  );
+  db_drop_primary_key($ret, 'versioncontrol_repositories');
+  db_change_field($ret, 'versioncontrol_repositories', 'repo_id', 'repo_id',
+    array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+    array('primary key' => array('repo_id'))
+  );
+
+  return $ret;
+}
+
+/**
+ * Update from 6.x-1.0-rc1 to rc2:
+ * String deltas for the "active developers" block.
+ */
+function versioncontrol_update_6101() {
+  $ret = array();
+  $ret[] = update_sql("
+    UPDATE {blocks} SET delta = 'site_active_developers'
+    WHERE delta = '0' AND module = 'versioncontrol'");
+  return $ret;
+}
+
+/**
+ * Update from 6.x-1.0-rc2 to 6.x-1.0-rc3:
+ * Add a "data" column for modules to put their per-repository settings,
+ * and migrate the registration texts as well as the previously global option
+ * "allow unauthorized commit access" to the data column for all repositories.
+ *
+ * Per-repository settings of the Commit Restrictions module is also migrated
+ * in this function - for convenience, as otherwise we would need some extra
+ * logic to prevent its updates as long as the data column doesn't yet exist.
+ */
+function versioncontrol_update_6102() {
+  $ret = array();
+  $spec = array(
+    'description' => t('A serialized array of additional per-repository settings, mostly populated by third-party modules.'),
+    'type' => 'text',
+    'size' => 'medium',
+    'not null' => TRUE,
+    'serialize' => TRUE,
+  );
+  db_add_field($ret, 'versioncontrol_repositories', 'data', $spec);
+
+  $global_access = (bool) variable_get('versioncontrol_allow_unauthorized_access', 0);
+  $data_template = array(
+    'versioncontrol' => array('allow_unauthorized_access' => $global_access),
+  );
+
+  // Get all repository ids. Some of the data arrays might get changed still,
+  // so we don't write them all at once.
+  $result = db_query('
+    SELECT r.repo_id, m.registration_message
+    FROM {versioncontrol_repositories} r
+      LEFT JOIN {versioncontrol_repository_metadata} m
+        ON r.repo_id = m.repo_id'
+  );
+  while ($repository = db_fetch_object($result)) {
+    $repository_data[$repository->repo_id] = $data_template;
+    $repository_data[$repository->repo_id]['versioncontrol']['registration_message'] =
+      $repository->registration_message;
+  }
+
+  // Migrate Commit Restrictions module settings into the $data array,
+  // and delete the module's table after all data has been migrated.
+  if (db_table_exists('commit_restrictions')) {
+    $result = db_query('
+      SELECT repo_id, allowed_paths, forbidden_paths, deny_undefined_paths,
+        valid_branch_tag_paths, valid_branches, valid_tags
+      FROM {commit_restrictions}'
+    );
+
+    while ($restrictions = db_fetch_array($result)) {
+      $repo_id = $restrictions['repo_id'];
+
+      $restrictions = array_filter(array(
+        'allowed_paths'          => array_filter(explode(' ', $restrictions['allowed_paths'])),
+        'forbidden_paths'        => array_filter(explode(' ', $restrictions['forbidden_paths'])),
+        'valid_branch_tag_paths' => array_filter(explode(' ', $restrictions['valid_branch_tag_paths'])),
+        'valid_branches'         => array_filter(explode(' ', $restrictions['valid_branches'])),
+        'valid_tags'             => array_filter(explode(' ', $restrictions['valid_tags'])),
+      ));
+      if (!empty($restrictions['deny_undefined_paths'])) {
+        $restrictions['deny_undefined_paths'] = (bool) $restrictions['deny_undefined_paths'];
+      }
+      if (!empty($restrictions)) {
+        $repository_data[$repo_id]['commit_restrictions'] = $restrictions;
+      }
+    }
+    db_drop_table($ret, 'commit_restrictions');
+  }
+
+  // Write the $data array to the respective repositories.
+  foreach ($repository_data as $repo_id => $data) {
+    $ret[] = update_sql("UPDATE {versioncontrol_repositories}
+                          SET data = '". db_escape_string(serialize($data)) ."'
+                          WHERE repo_id = ". $repo_id);
+  }
+
+  db_drop_table($ret, 'versioncontrol_repository_metadata');
+  variable_del('versioncontrol_allow_unauthorized_access');
+
+  $ret[] = array(
+    'success' => TRUE,
+    'query' => 'Deleted the global "versioncontrol_allow_unauthorized_access" variable, and migrated it to be a per-repository setting.',
+  );
+
+  return $ret;
+}
+
+/**
+ * Update 6300 (from 6.x-2.0 to 6.x-3.0):
+ * Adding author and commiter instead of only username
+ * Move urls to data array.
+ * Drop url_backend field from repo table
+ */
+function versioncontrol_update_6300() {
+  $ret = array();
+
+  // author and committer
+  $author_spec = array(
+    'description' => 'VCS specific username of the user who is the original author of this operation. For centralized version control systems this and committer are the same.',
+    'type' => 'varchar',
+    'length' => 64,
+    'not null' => TRUE,
+    'default' => '',
+  );
+  $committer_spec = array(
+    'description' => 'VCS specific username of the user who executed this operation. For distributed version control systems, this should be the author, not the committer. For centralized version control systems this and author are the same.',
+    'type' => 'varchar',
+    'length' => 64,
+    'not null' => TRUE,
+    'default' => '',
+  );
+  db_change_field($ret, 'versioncontrol_operations', 'username', 'author', $author_spec);
+  db_add_field($ret, 'versioncontrol_operations', 'committer', $committer_spec);
+
+  // urls to data array
+  $repos = versioncontrol_repository_load_multiple(FALSE);
+  $result = db_query('SELECT * FROM {versioncontrol_repository_urls}');
+  while ($urls = db_fetch_array($result)) {
+    $repo_id = $urls['repo_id'];
+    unset($urls['repo_id']);
+    $repos[$repo_id]->data['versioncontrol']['url_handler'] = new VersioncontrolRepositoryUrlHandler($repos[$repo_id], $urls);
+    $repos[$repo_id]->update();
+  }
+  db_drop_table($ret, 'versioncontrol_repository_urls');
+
+  // no more url backend
+  db_drop_field($ret, 'versioncontrol_repositories', 'url_backend');
+
+  return $ret;
+}
+
+/**
+ * Add a 'data' field to the labels table.
+ *
+ * @return array
+ */
+function versioncontrol_update_6301() {
+  $ret = array();
+  $data_spec = array(
+    'description' => 'A serialized array of additional per-label data.',
+    'type' => 'text',
+    'size' => 'medium',
+    'not null' => TRUE,
+    'serialize' => TRUE,
+  );
+  db_add_field($ret, 'versioncontrol_labels', 'data', $data_spec);
+  return $ret;
+}
+
+/**
+ * Add the 'updated' and 'updated_method' columns.
+ *
+ * These fields were previously stored as members of a serialized array stored
+ * in the data column but this could be problematic for views integration and
+ * the operations that we need to perform across large numbers of repositories.
+ *
+ * @return array
+ * properties and field names, and VersioncontrolAccount has a $vcs_username
+ * property, not a $username property. We're changing the db column name rather
+ * than the class property name as vcs_username is more specific & accurate, and
+ * won't be confused with Drupal's own {users}.username.
+ */
+function versioncontrol_update_6302() {
+  $ret = array();
+  $fields = array(
+    'updated' => array(
+      'description' => 'The Unix timestamp when this repository was last updated.',
+      'type' => 'int',
+      'not null' => TRUE,
+      'default' => 0
+    ),
+    'update_method' => array(
+      'description' => 'The method that this repository will use to update the operations table.  This should correspond to constants provided by the backend provider.',
+      'type' => 'int',
+      'not null' => TRUE,
+      'default' => 1
+    ),
+  );
+  foreach  ($fields as $field_name => $data_spec) {
+    db_add_field($ret, 'versioncontrol_repositories', $field_name, $data_spec);
+  }
+  return $ret;
+}
+
+/**
+ * Rename {versioncontrol_accounts}.username to
+ * {versioncontrol_accounts}.vcs_username.
+ *
+ * VCAPI's entity controllers expect an exact naming match between object
+ * properties and field names, and VersioncontrolAccount has a $vcs_username
+ * property, not a $username property. We're changing the db column name rather
+ * than the class property name as vcs_username is more specific & accurate, and
+ * won't be confused with Drupal's own {users}.username.
+ */
+function versioncontrol_update_6303() {
+  $ret = array();
+  $spec = array(
+    'description' => 'VCS-specific username of the VCS account associated with the Drupal user in {versioncontrol_accounts}.uid.',
+    'type' => 'varchar',
+    'length' => 64,
+    'not null' => TRUE,
+    'default' => '',
+  );
+  db_change_field($ret, 'versioncontrol_accounts', 'username', 'vcs_username', $spec);
+
+  return $ret;
+}
+
+/**
+ * Remove the versioncontrol_operation_items table, as it was an unnecessary
+ * mapping layer between item revisions and operations.
+ */
+function versioncontrol_update_6304() {
+  $ret = array();
+  $spec = array(
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+    'default' => 0,
+  );
+  db_add_field($ret, 'versioncontrol_item_revisions', 'vc_op_id', $spec);
+
+  $result = db_query("SELECT vc_op_id, item_revision_id FROM {versioncontrol_operation_items}");
+
+  $data = array();
+  while ($row = db_fetch_object($result)) {
+    db_query('UPDATE {versioncontrol_operation_items} SET vc_op_id = %d WHERE item_revision_id = %d', $row->vc_op_id, $row->item_revision_id);
+  }
+
+  db_drop_table($ret, 'versioncontrol_operation_items');
+  return $ret;
+}
+
+/**
+ * Add 'locked' column.
+ *
+ * This field was previously stored as members of a serialized array stored
+ * in the data column. Now an independent field.
+ */
+function versioncontrol_update_6305() {
+  $ret = array();
+  $locked = array(
+    'description' => 'Dead-simple semaphore - boolean indicating whether the repository is unlocked (0) or locked (1). Locking is typically used when doing log fetches.',
+    'type' => 'int',
+    'not null' => TRUE,
+    'default' => 0,
+  );
+  db_add_field($ret, 'versioncontrol_repositories', 'locked', $locked);
+  return $ret;
+}
+
+/**
+ * Merge {versioncontrol_item_revisions} and {versioncontrol_source_items} tables.
+ *
+ * This is mainly to avoid unnecessary complexity.
+ * See #975864 for details.
+ */
+function versioncontrol_update_6306() {
+  $ret = array();
+  $fields = array(
+    'source_item_revision_id' => array(
+      'description' =>
+        'Foreign key for the source item - also referring to {versioncontrol_item_revisions}.item_revision_id, but to a different one than this {versioncontrol_item_revisions}.item_revision_id. Contains 0 if the action is VERSIONCONTROL_ACTION_ADDED.',
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'action' => array(
+      'description' =>
+        'Action that was performed while transforming the source item into the successor item. Can be one of the VERSIONCONTROL_ACTION_* values listed at the top of versioncontrol.module.
+
+        The VERSIONCONTROL_ACTION_DELETED and VERSIONCONTROL_ACTION_REPLACED actions are considered to be the end in the history of an item, no further successors than the current one should be retrieved. (For VERSIONCONTROL_ACTION_DELETED, item_revision_id links to a deleted item. For VERSIONCONTROL_ACTION_REPLACED, item_revision_id links to a different item at the same path that replaced the item specified by source_item_revision_id.
+
+        Likewise, the VERSIONCONTROL_ACTION_ADDED action is considered the beginning, with source_item_revision_id being 0 in that case.',
+      'type' => 'int',
+      'size' => 'tiny',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'line_changes_added' => array(
+      'description' =>
+        'If possible, this column contains the amount of lines that was added to the file compared to its source revision. (Equivalent to the "plus" lines in a unified diff.)',
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'line_changes_removed' => array(
+      'description' =>
+        'If possible, this column contains the amount of lines that was removed from the file compared to its source revision. (Equivalent to the "minus" lines in a unified diff.)',
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+  );
+
+  foreach  ($fields as $field_name => $data_spec) {
+    db_add_field($ret, 'versioncontrol_item_revisions', $field_name, $data_spec);
+  }
+
+  db_add_index($ret, 'versioncontrol_item_revisions', 'source_item_revision_id', array('source_item_revision_id'));
+
+  $result = db_query("SELECT item_revision_id, source_item_revision_id, action, line_changes_added, line_changes_removed FROM {versioncontrol_source_items}");
+
+  while ($row = db_fetch_object($result)) {
+    db_query('UPDATE {versioncontrol_item_revisions} SET source_item_revision_id = %d, action = %d, line_changes_added = %d, line_changes_removed WHERE item_revision_id = %d', $row->source_item_revision_id, $row->action, $row->line_changes_added, $row->line_changes_removed, $row->item_revision_id);
+  }
+
+  db_drop_table($ret, 'versioncontrol_source_items');
+
+  return $ret;
+}
+
+/**
+ * Allow independent uid mappings for both author and committer data.
+ *
+ * @return array
+ */
+function versioncontrol_update_6307() {
+  $ret = array();
+  $author_uid_spec = array(
+    'description' =>
+      'The {users}.uid for the Drupal user who authored this commit, corresponding to the value in {versioncontrol_operations}.author. If no such association can be found, then 0.',
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+    'default' => 0,
+  );
+  $committer_uid_spec = array(
+    'description' =>
+      'The {users}.uid for the Drupal user who made this commit (but perhaps was not the author), corresponding to the value in {versioncontrol_operations}.committer. If no such association can be found, then 0.',
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+    'default' => 0,
+  );
+
+  db_add_field($ret, 'versioncontrol_operations', 'committer_uid', $committer_uid_spec);
+  db_change_field($ret, 'versioncontrol_operations', 'uid', 'author_uid', $author_uid_spec);
+
+  // Safe initialization that'll get some good values in for the committer uid.
+  db_query('UPDATE {versioncontrol_operations} SET committer_uid = author_uid WHERE (committer = author OR committer = "")');
+  return $ret;
+}
+
+/**
+ * Add 'plugins' column to {versioncontrol_repositories}.
+ */
+function versioncontrol_update_6308() {
+  $ret = array();
+  $plugins = array(
+    'description' => 'The list of ctools plugins associated with this repository.',
+    'type' => 'text',
+    'size' => 'medium',
+    'not null' => TRUE,
+    'serialize' => TRUE,
+  );
+  db_add_field($ret, 'versioncontrol_repositories', 'plugins', $plugins);
+  return $ret;
+}
+
+/**
+ * Add tables for auth plugins, specifically the
+ * VersioncontrolAuthHandlerMappedAccounts family of plugins.
+ */
+function versioncontrol_update_6309() {
+  $ret = array();
+
+  $account_table = array(
+    'description' => 'ACL table, used by the VersioncontrolAuthHandlerMappedAccounts family of plugins, that stores ACL data on a per-uid/per-repo basis.',
+    'fields' => array(
+      'uid' => array(
+        'description' => 'Foreign key to {users}.uid; uniquely identifies a Drupal user to whom this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key to {versioncontrol_repositories}.repo_id; identifies the repository to which this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'access' => array(
+        'type' => 'int',
+        'description' => 'Base, global access to the repository. 0 indicates no access (disabled/inactive account; acts as a global deny), 1 indicates some level of access, 2 indicates global access (overrides granular access).',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'branch_create' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to create branches in the repository.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'branch_update' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to update/write to any branch in the repository. 1 is global access, 0 defers to individual branch perms.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'branch_delete' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to delete any branch in the repository. 1 is global access, 0 defers to individual branch perms.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'tag_create' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to create tags in the repository.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'tag_update' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to update/modify any tag in the repository. 1 is global access, 0 defers to individual tag perms.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'tag_delete' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to delete tags in the repository. 0 is no access, 1 is some access, 2 can delete all tags.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('repo_id', 'uid'),
+  );
+
+  db_create_table($ret, 'versioncontrol_auth_account', $account_table);
+
+  $auth_label_table = array(
+    'description' => '',
+    'fields' => array(
+      'uid' => array(
+        'description' => 'Foreign key to {users}.uid; uniquely identifies a Drupal user to whom this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key to {versioncontrol_repositories}.repo_id; identifies the repository to which this ACL data applies.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'label_id' => array(
+        'description' => 'Foreign key to {versioncontrol_labels}.label_id; identifies the label (branch or tag) to which this ACL data applies.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'label_update' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to update/modify this label.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'label_delete' => array(
+        'type' => 'int',
+        'description' => 'Grant user access to delete this label.',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('repo_id', 'uid', 'label_id'),
+    'indexes' => array(
+      'label_id' => array('label_id'),
+    ),
+  );
+
+  db_create_table($ret, 'versioncontrol_auth_account_label', $auth_label_table);
+
+  return $ret;
+}
+
+/**
+ * Introduce the table for managing VCAPI's views set data.
+ *
+ * @return array
+ */
+function versioncontrol_update_6310() {
+  $ret = array();
+
+  $schema = array(
+    'description' => 'System names of views to be used for particular views sets, per-backend, as configured in the UI. Settings stored here will override those specified by backends, if any.',
+    'fields' => array(
+      'views_set' => array(
+        'description' => 'The string identifying this view set, as defined in implementations of hook_versioncontrol_views_sets().',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+      ),
+      'vcs' => array(
+        'description' => 'Unique string identifier of the backend, e.g. "cvs", "svn" or "git".',
+        'type' => 'varchar',
+        'length' => 8,
+        'not null' => TRUE,
+      ),
+      'view_name' => array(
+        'description' => 'The system name of the view to be used for this set/backend combination.',
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('views_set', 'vcs'),
+  );
+
+  db_create_table($ret, 'versioncontrol_views_sets', $schema);
+
+  return $ret;
+}
+
+/**
+ * Remove allow_unauthorized_access from repository data.
+ */
+function versioncontrol_update_6311() {
+  $ret = array();
+  $result = db_query("SELECT repo_id, data FROM {versioncontrol_repositories}");
+
+  while ($row = db_fetch_object($result)) {
+    $data = unserialize($row->data);
+    unset($data['versioncontrol']['allow_unauthorized_access']);
+    $data = serialize($row->data);
+    db_query("UPDATE {versioncontrol_repositories} SET data = '%s' WHERE repo_id = %d", $row->data, $row->repo_id);
+  }
+
+  return $ret;
+}
+
+/**
+ * Remove url_handler from repository data.
+ * Add base_url to repository data.
+ */
+function versioncontrol_update_6312() {
+  $ret = array();
+  $result = db_query("SELECT repo_id, data FROM {versioncontrol_repositories}");
+
+  while ($row = db_fetch_object($result)) {
+    $data = unserialize($row->data);
+    unset($data['versioncontrol']['url_handler']);
+    $data['webviewer_base_url'] = '';
+    $data = serialize($row->data);
+    db_query("UPDATE {versioncontrol_repositories} SET data = '%s' WHERE repo_id = %d", $row->data, $row->repo_id);
+  }
+
+  return $ret;
+}
+
+/**
+ * Make repository names non-unique.
+ */
+function versioncontrol_update_6313() {
+  $ret = array();
+  db_drop_unique_key($ret, 'versioncontrol_repositories', 'name');
+  return $ret;
+}
+
+/**
+ * Add default plugins for repositories.
+ */
+function versioncontrol_update_6314() {
+  $ret = array();
+
+  variable_set('versioncontrol_repository_plugin_default_webviewer_url_handler', 'none');
+  variable_set('versioncontrol_repository_plugin_default_auth_handler', 'ffa');
+  variable_set('versioncontrol_repository_plugin_default_user_mapping_methods', 'none');
+
+  // Remove webviewer_base_url from repository data if empty.
+  $result = db_query("SELECT repo_id, data FROM {versioncontrol_repositories}");
+  while ($row = db_fetch_object($result)) {
+    $data = unserialize($row->data);
+    if (empty($data['webviewer_base_url'])) {
+      unset($data['webviewer_base_url']);
+      $data = serialize($row->data);
+      db_query("UPDATE {versioncontrol_repositories} SET data = '%s' WHERE repo_id = %d", $row->data, $row->repo_id);
+    }
+  }
+
+  return $ret;
+}
+
+/**
+ * {versioncontrol_repositories}.locked is now a proper timestamp, so update
+ * all locked repos with the timestamp of this update (best we can do).
+ */
+function versioncontrol_update_6315() {
+  $ret = array();
+  db_query('UPDATE {versioncontrol_repositories} SET locked = %d WHERE locked = 1', time());
+  return $ret;
+}
+
+/**
+ * Add an index on {versioncontrol_item_revisions}.vc_op_id.
+ *
+ * This is required to avoid a full table scan on this table during JOINs.
+ */
+function versioncontrol_update_6316() {
+  $ret = array();
+  db_add_index($ret, 'versioncontrol_item_revisions','vc_op_id', array('vc_op_id'));
+  return $ret;
+}
+
+/**
+ * Use two fields to handle operation dates.
+ */
+function versioncontrol_update_6317() {
+  $ret = array();
+  $author_date_spec = array(
+    'description' => 'Date/time when the operation was created, as Unix timestamp.',
+    'type' => 'int',
+    'size' => 'big',
+    'not null' => TRUE,
+    'default' => 0,
+  );
+  $committer_date_spec = array(
+    'description' => 'Date/time when the operation was added to the repository, as Unix timestamp.',
+    'type' => 'int',
+    'size' => 'big',
+    'not null' => TRUE,
+    'default' => 0,
+  );
+  $committer_date_index_spec = array('indexes' => array('committer_date' => array('committer_date')));
+  $author_date_index_spec = array('indexes' => array('author_date' => array('author_date')));
+  db_add_field($ret, 'versioncontrol_operations', 'committer_date', $committer_date_spec, $committer_date_index_spec);
+  db_query('UPDATE {versioncontrol_operations} vco SET vco.committer_date = vco.date');
+  db_drop_index($ret, 'versioncontrol_operations', 'date');
+  db_change_field($ret, 'versioncontrol_operations', 'date', 'author_date', $author_date_spec, $author_date_index_spec);
+  return $ret;
+}
+
+/**
+ * Make {versioncontrol_labels}.name case sensitive on mysql.
+ */
+function versioncontrol_update_6318() {
+  $ret = array();
+
+  // Only try this on mysql.
+  if (!in_array($GLOBALS['db_type'], array('mysql', 'mysqli'))) {
+    return $ret;
+  }
+
+  db_drop_unique_key($ret, 'versioncontrol_labels', 'repo_id_name_type');
+  $name_spec = array(
+    'type' => 'varchar',
+    'description' => 'Name of the label, e.g. "HEAD", "master", "DRUPAL-6--1" or "6.x-1.0".',
+    // This is evil, but there is not standard way to change a field collation.
+    'mysql_type' => "VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_bin",
+    'not null' => TRUE,
+    'default' => '',
+  );
+  db_change_field($ret, 'versioncontrol_labels', 'name', 'name', $name_spec);
+  db_add_unique_key($ret, 'versioncontrol_labels', 'repo_id_name_type', array('repo_id', 'name', 'type'));
+
+  return $ret;
+}
+
+/**
+ * Remove {versioncontrol_labels}.data column
+ */
+function versioncontrol_update_6319() {
+  $ret = array();
+  db_drop_field($ret, 'versioncontrol_labels', 'data');
+  return $ret;
+}
+
+/**
+ * Introduce the {versioncontrol_event_log} table, used for storing raw event
+ * information.
+ */
+function versioncontrol_update_6320() {
+  $ret = array();
+
+  $schema = array(
+    'description' => 'A log of all human interaction events in all repositories. Its primary use is providing the base data required for modules like Activity. This table contains at least some original, non-derived data and as such cannot be safely flushed, unlike some of the other core versioncontrol tables.
+    Backends are expected to implement their own tables joining label and commit information against this event bank, as structural variances across backends are too great to be well accounted-for in a fixed schema.',
+    'fields' => array(
+      'elid' => array(
+        'description' => 'Serial primary key uniquely identifying each event.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'repo_id' => array(
+        'description' => 'Foreign key to {versioncontrol_repositories}.repo_id; identifies the repository from which this activity data derives.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'Foreign key to {users}.uid; uniquely identifies the Drupal user responsible for this event.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'timestamp' => array(
+        'description' => 'The Unix timestamp of when the event occurred.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('elid'),
+    'indexes' => array(
+      'repo_id' => array('repo_id'),
+      'uid' => array('uid'),
+    ),
+  );
+  db_create_table($ret, 'versioncontrol_event_log', $schema);
+  return $ret;
+}

@@ -1,0 +1,25 @@
+name = "Version Control API"
+description = "An interface to version control systems whose functionality is provided by pluggable back-end modules."
+dependencies[] = autoload
+dependencies[] = dbtng
+dependencies[] = ctools
+dependencies[] = views
+files[] = includes/VersioncontrolBackend.php
+files[] = includes/VersioncontrolBranch.php
+files[] = includes/VersioncontrolItem.php
+files[] = includes/VersioncontrolOperation.php
+files[] = includes/VersioncontrolRepository.php
+files[] = includes/VersioncontrolTag.php
+files[] = includes/interfaces.inc
+files[] = includes/controllers.inc
+files[] = includes/views_sets.inc
+package = Version Control
+core = 6.x
+php = 5.2
+
+; Information added by drupal.org packaging script on 2011-07-22
+version = "6.x-2.0-alpha2"
+core = "6.x"
+project = "versioncontrol"
+datestamp = "1311365222"
+

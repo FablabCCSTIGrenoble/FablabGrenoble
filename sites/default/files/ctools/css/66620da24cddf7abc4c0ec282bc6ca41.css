@@ -1,0 +1,84 @@
+.panels-flexible-region {
+  padding: 0;
+}
+
+.panels-flexible-region-inside {
+  padding-right: 0.2em;
+  padding-left: 0.2em;
+}
+
+.panels-flexible-region-inside-first {
+  padding-left: 0;
+}
+
+.panels-flexible-region-inside-last {
+  padding-right: 0;
+}
+
+.panels-flexible-column {
+  padding: 0;
+}
+
+.panels-flexible-column-inside {
+  padding-right: 0.2em;
+  padding-left: 0.2em;
+}
+
+.panels-flexible-column-inside-first {
+  padding-left: 0;
+}
+
+.panels-flexible-column-inside-last {
+  padding-right: 0;
+}
+
+.panels-flexible-row {
+  padding: 0 0 0.1em 0;
+  margin: 0;
+}
+
+.panels-flexible-row-last {
+  padding-bottom: 0;
+}
+
+.panels-flexible-column-2-main {
+  float: left;
+  width: 99.0000%;
+}
+
+.panels-flexible-2-inside {
+  padding-right: 0px;
+}
+
+.panels-flexible-2 {
+  width: auto;
+}
+
+.panels-flexible-region-2-fabmoments {
+  float: left;
+  width: 99.0000%;
+}
+
+.panels-flexible-row-2-1-inside {
+  padding-right: 0px;
+}
+
+.panels-flexible-region-2-reservations {
+  float: left;
+  width: 33.0425%;
+}
+
+.panels-flexible-region-2-about_the_lab {
+  float: left;
+  width: 33.0339%;
+}
+
+.panels-flexible-region-2-center {
+  float: left;
+  width: 32.9236%;
+}
+
+.panels-flexible-row-2-main-row-inside {
+  padding-right: 0px;
+}
+

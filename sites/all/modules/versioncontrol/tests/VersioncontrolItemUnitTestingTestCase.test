@@ -1,0 +1,132 @@
+<?php
+/**
+ * @file
+ * Unit tests for item class.
+ */
+require_once drupal_get_path('module', 'versioncontrol') . '/tests/VersioncontrolTestCase.test';
+
+/**
+ * Unit tests for VersioncontrolItem class.
+ */
+class VersioncontrolItemUnitTestingTestCase extends VersioncontrolTestCase {
+
+  /**
+   * Implementation of getInfo().
+   */
+  public static function getInfo() {
+    return array(
+      'name' => t('Item class unit tests'),
+      'description' => t('Unit tests for the VersioncontrolItem class.'),
+      'group' => t('Version Control API'),
+    );
+  }
+
+  /**
+   * Implementation of setUp().
+   */
+  function setUp() {
+    $this->useBackends = self::BACKENDS_TEST;
+    parent::setUp();
+  }
+
+  public function testCreation() {
+    // Build and insert.
+    $repo = $this->versioncontrolCreateRepository('test');
+    $operation = $this->versioncontrolCreateOperation('test');
+    $data = array(
+      'vc_op_id' => $operation->vc_op_id,
+      'path' => '/fake/path/to/file',
+      'revision' => $this->randomName(4),
+      'type' => VERSIONCONTROL_ITEM_FILE,
+      'source_item_revision_id' => 0,
+      'action' => VERSIONCONTROL_ACTION_ADDED,
+      'line_changes_added' => 10,
+      'line_changes_removed' => 0,
+      'repository' => $repo,
+    );
+    $item = $this->testBackend->buildEntity('item', $data);
+    $item->insert();
+
+    // Verify.
+    $db_item = db_select('versioncontrol_item_revisions', 'i')
+      ->fields('i')
+      ->condition('item_revision_id', $item->item_revision_id)
+      ->execute()
+      ->fetchObject();
+    foreach ($item as $key => $val) {
+      //TODO remove this when #319153 gets in
+      if ($key == 'deleted') {
+        continue;
+      }
+      $this->assertEqual($val, $db_item->$key, t('%key item attribute is stored correctly', array('%key' => $key)), t('Creation'));
+    }
+  }
+
+  public function testRead() {
+    $controller = new VersioncontrolItemController();
+    // no item, test we get valid output
+    $items = $controller->load(array(''));
+    $this->assertTrue(empty($items), t('Make sure we get an empty array when trying to get a item with empty item_revision_id'), t('Read'));
+
+    $items = $controller->load(NULL);
+    $this->assertTrue(empty($items), t('Make sure we get an empty array when trying to get a item with a NULL item_revision_id'), t('Read'));
+
+    $items = $controller->load(array(1));
+    $this->assertTrue(empty($items), t('Make sure we get an empty array when trying to get a item which do not exist'), t('Read'));
+
+    // create item and test again
+    $item = $this->versioncontrolCreateItem('test');
+    $db_items = $controller->load(array($item->item_revision_id));
+    $this->assertEqual(count($db_items), 1, t('Only one item found'), t('Read'));
+    $db_item = reset($db_items);
+    $this->assertTrue(isset($db_item) && is_a($db_item, 'VersioncontrolItem'), t('Make sure we get a valid return when passing a good item_revision_id.'), t('Read'));
+    $this->assertEqual($db_item->item_revision_id, $item->item_revision_id, t('Make sure we get the right item.'), t('Read'));
+  }
+
+  public function testUpdate() {
+    $item = $this->versioncontrolCreateItem('test');
+
+    $data = array(
+      'path' => '/fake/path/to/',
+      'revision' => $this->randomName(4),
+      'type' => VERSIONCONTROL_ITEM_DIRECTORY,
+      'source_item_revision_id' => 0,
+      'action' => VERSIONCONTROL_ACTION_ADDED,
+      'line_changes_added' => 0,
+      'line_changes_removed' => 0,
+    );
+
+    foreach ($data as $key => $value) {
+      $item->$key = $value;
+    }
+    $item->update();
+
+    $db_item = db_select('versioncontrol_item_revisions', 'i')
+      ->fields('i')
+      ->condition('item_revision_id', $item->item_revision_id)
+      ->execute()
+      ->fetchObject();
+    foreach ($item as $key => $val) {
+      //TODO remove this when #319153 gets in
+      if ($key == 'deleted') {
+        continue;
+      }
+      $this->assertEqual($val, $db_item->$key, t('%key item attribute is updated correctly', array('%key' => $key)), t('Update'));
+    }
+
+  }
+
+  public function testDelete() {
+    $item = $this->versioncontrolCreateItem('test');
+    $item->delete();
+
+    $result = db_select('versioncontrol_item_revisions', 'i')
+      ->fields('i')
+      ->condition('item_revision_id', $item->item_revision_id)
+      ->execute();
+    foreach ($result as $db_item) {
+      $this->fail(t('The item was not deleted correctly.'), t('Delete'));
+    }
+  }
+
+}

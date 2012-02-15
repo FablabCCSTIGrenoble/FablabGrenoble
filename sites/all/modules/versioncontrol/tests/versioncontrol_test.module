@@ -1,0 +1,15 @@
+<?php
+/**
+ * @file
+ * TestVCS backend for Version Control API -
+ * Helper for testing Version Control core
+ */
+
+/**
+ * Implementation of hook_versioncontrol_backends().
+ */
+function versioncontrol_test_versioncontrol_backends() {
+  return array(
+    'test' => new VersioncontrolTestBackend()
+  );
+}

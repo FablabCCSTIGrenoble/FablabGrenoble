@@ -1,0 +1,233 @@
+<?php
+/**
+ * @file
+ * Commit Log - Display a history of commits, branches and tags,
+ * optionally filtered by a set of constraint arguments.
+ *
+ * Copyright 2006, 2007 Derek Wright ("dww" , http://drupal.org/user/46549)
+ * Copyright 2007, 2008, 2009 by Jakob Petsovits ("jpetso", http://drupal.org/user/56020)
+ */
+
+/**
+ * Implementation of hook_menu().
+ */
+function commitlog_menu() {
+  $items = array();
+
+  $view_access = 'access commit messages';
+
+  $items['commitlog'] = array(
+    'title' => 'Commit messages',
+    'page callback' => 'commitlog_operations_page',
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['commitlog/feed'] = array(
+    'title' => 'Commit messages',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('global', 'feed'),
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['commitlog/repository/%versioncontrol_repository'] = array(
+    'title' => 'Commit messages',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('repository', 'page', 2),
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['commitlog/repository/%versioncontrol_repository/feed'] = array(
+    'title' => 'Commit messages',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('repository', 'feed', 2),
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['commitlog/author/%user'] = array(
+    'title' => 'Commit messages',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('author', 'page', 2),
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['commitlog/author/%user/feed'] = array(
+    'title' => 'Commit messages',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('author', 'feed', 2),
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['commitlog/commit/%versioncontrol_repository/%'] = array(
+    'title' => 'Commit',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('commit', 'page', 2, 3),
+    'access arguments' => array($view_access),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['user/%user/track/code'] = array(
+    'title' => 'Commits',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('user', 'page', 1),
+    'access arguments' => array($view_access),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+  );
+  $items['user/%user/track/code/feed'] = array(
+    'title' => 'Commits',
+    'page callback' => 'commitlog_operations_page',
+    'page arguments' => array('user', 'feed', 1),
+    'access arguments' => array($view_access),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function commitlog_perm() {
+  return array('access commit messages');
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function commitlog_theme() {
+  return array(
+    'commitlog_operations_page' => array(
+      'arguments' => array('constraints' => NULL),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_views_api().
+ *
+ * @return array
+ */
+function commitlog_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'commitlog'). '/includes/views',
+  );
+}
+
+/**
+ * Implementation of ctools hook_ctools_plugin_directory().
+ */
+function commitlog_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'versioncontrol') {
+    return "includes/plugins/$plugin";
+  }
+}
+
+/**
+ * Page callback for the 'commitlog' family of menu paths.
+ *
+ * @param $view_type
+ *   What type of commit log listing we're creating.  Supported types are 'author', 'commit', 'global', 'repository' and 'user'.
+ * @param $display_type
+ *   What type of display output we are creating. Supported types are 'page' and 'feed'.
+ * @param $argument
+ *   The argument with which to filter the view.  This is used as the first argument in the view in question.
+ * @param $argument2
+ *   Another argument to filter the view.  This is used as the second argument in the view in question.
+ */
+function commitlog_operations_page($view_type = NULL, $display_type='page', $argument = NULL, $argument2 = NULL) {
+  drupal_add_css(drupal_get_path('module', 'commitlog') . '/commitlog.css', 'module');
+
+  $view_name = '';
+  if (($view_type == 'author' || $view_type == 'user') && !is_null($argument)) {
+    $account = $argument;
+    $set = versioncontrol_get_views_set('user_commit_view');
+    $view_name = $set->getViewName();
+    $feed_url = ($view_type == 'author') ? "commitlog/author/{$account->uid}/feed" : "user/{$account->uid}/track/code/feed";
+
+    if ($display_type == 'feed') {
+      return versioncontrol_render_commitlog_view($view_name, 'feed', array($account->uid), $feed_url);
+    }
+    return versioncontrol_render_commitlog_view($view_name, 'default', array($account->uid), '', $feed_url);
+  }
+  if ($view_type == 'repository' && !is_null($argument)) {
+    $repository = $argument;
+    $set = versioncontrol_get_views_set('repository_commit_view');
+    $view_name = $set->getViewNameByEntity($repository);
+    $feed_url = "commitlog/repository/{$repository->repo_id}/feed";
+
+    if ($display_type == 'feed') {
+      return versioncontrol_render_commitlog_view($view_name, 'feed', array($repository->repo_id), $feed_url);
+    }
+    return versioncontrol_render_commitlog_view($view_name, 'default', array($repository->repo_id), '', $feed_url);
+  }
+  if ($view_type == 'commit' && !is_null($argument) && !is_null($argument2)) {
+    $repository = $argument;
+    $revision = $argument2;
+    $set = versioncontrol_get_views_set('individual_commit_view');
+    $view_name = $set->getViewName();
+    return versioncontrol_render_commitlog_view($view_name, 'default', array($repository->repo_id, $revision));
+  }
+  // global by default
+  $set = versioncontrol_get_views_set('global_commit_view');
+  $view_name = $set->getViewName();
+  $feed_url = 'commitlog/feed';
+
+  if ($display_type == 'feed') {
+    return versioncontrol_render_commitlog_view($view_name, 'feed', array(), $feed_url);
+  }
+  return versioncontrol_render_commitlog_view($view_name, 'default', array(), '', $feed_url);
+}
+
+/**
+ * A convinience function to render a commitlog view.
+ * Basic logic here borrowed from views_embed_view().
+ *
+ * @param $view_name
+ *   Name of the view to render.
+ * @param $display_type
+ *   What type of display output we are creating. Supported types are 'default' and 'feed'.
+ * @param $arguments
+ *   The arguments needed for render the view.
+ * @param $path
+ *   The path to overwrite the view with.
+ * @param $feed_url
+ *   The url of the feed this display is linked. Only valid for $display_type = 'default'.
+ * @return
+ *   On $display_type == 'default', the content to show.
+ *   On $display_type == 'feed', NULL, but handle RSS printning by hand.
+ */
+function versioncontrol_render_commitlog_view($view_name, $display_type, $arguments = array(), $path = '', $feed_url = '') {
+  $view = views_get_view($view_name);
+  if (!$view || !$view->access($display_type)) {
+    return drupal_not_found();
+  }
+
+  if (!empty($path)) {
+    $view->override_path = $path;
+    if ($display_type == 'feed') {
+      // Ugh, this line is needed, as override_path seems to not be enough
+      $view->display['feed']->display_options['path'] = $path;
+    }
+  }
+
+  $output = $view->preview($display_type, $arguments);
+
+  if ($display_type == 'feed') {
+    drupal_set_header('Content-Type: application/rss+xml; charset=utf-8');
+    print $output;
+    return;
+  }
+  else { // default display type
+    if (!empty($feed_url)) {
+      $feed_url = url($feed_url, array('absolute' => TRUE));
+      drupal_add_feed($feed_url);
+    }
+  }
+  // default
+  $title = $view->get_title();
+  if (!empty($title)) {
+    drupal_set_title($title);
+  }
+
+  return $output;
+}

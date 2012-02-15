@@ -1,0 +1,65 @@
+<?php
+
+/**
+ * Implementation of hook_schema().
+ */
+function dbtng_schema() {
+  $schema = array();
+
+  $schema['dbtng_sequences'] = array(
+    'description' => 'Stores IDs.',
+    'fields' => array(
+      'value' => array(
+        'description' => 'The value of the sequence.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('value'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implementation of hook_install().
+ */
+function dbtng_install() {
+  drupal_install_schema('dbtng');
+  db_query("INSERT INTO {dbtng_sequences} VALUES (1);");
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function dbtng_uninstall() {
+  drupal_uninstall_schema('dbtng');
+}
+
+/**
+ * Add the new dbtng_sequences table.
+ */
+function dbtng_update_6001() {
+  $ret = array();
+
+  if (!db_table_exists('dbtng_sequences')) {
+    $table = array(
+      'description' => 'Stores IDs.',
+      'fields' => array(
+        'value' => array(
+          'description' => 'The value of the sequence.',
+          'type' => 'serial',
+          'unsigned' => TRUE,
+          'not null' => TRUE,
+        ),
+      ),
+      'primary key' => array('value'),
+    );
+
+    db_create_table($ret, 'dbtng_sequences', $table);
+    db_query("INSERT INTO {dbtng_sequences} VALUES (1);");
+  }
+
+  return $ret;
+}

@@ -1,0 +1,151 @@
+
+/* Global view */
+
+.view-commitlog-global-commits .view-content h3 {
+  margin: 15px 0 10px;
+  font-size: 1.35em;
+}
+
+.view-commitlog-global-commits .commit-global {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.view-commitlog-global-commits li.views-row {
+  background: none;
+  list-style-type: none;
+  list-style-image: none;
+  padding: 0;
+}
+
+.view-commitlog-commit-items .views-field-nothing {
+  font-size: 1.1em;
+}
+
+.view-commitlog-global-commits .views-label-revision-1 {
+  padding-left: 10px;
+  font-style: italic;
+}
+
+.view-commitlog-global-commits .views-field-line-changes-added {
+  float: right;
+  display: inline;
+  margin: -20px 0px 5px 0px;
+}
+
+.view-commitlog-global-commits .views-field-line-changes-removed {
+  float: right;
+  display: inline;
+  margin:  -20px 5px 5px 0px;
+}
+
+.view-commitlog-global-commits .views-field-view {
+  font-weight: normal;
+}
+
+.view-commitlog-global-commits .views-field-message {
+  padding: 2px 2px 5px 2px;
+  margin: 0 0 2em 0;
+  border-bottom: solid 1px #E1E1DB;
+}
+
+.view-commitlog-global-commits .views-field-message pre {
+  white-space: pre-wrap;
+  background: #F6F6F2;
+  padding: 3px;
+  font-size: 1em;
+  border: none;
+}
+
+.view-commitlog-global-commits .views-field-vc-op-id {
+  display: none;
+}
+
+.view-commitlog-global-commits .item-list .pager {
+  text-align: left;
+}
+
+
+/* Author view */
+
+.view-commitlog-author-commits .view-content h3 {
+  margin: 15px 0 10px;
+  font-size: 1.35em;
+}
+
+.view-commitlog-author-commits .commit-author  {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.view-commitlog-author-commits li.views-row {
+  background: none;
+  list-style-type: none;
+  list-style-image: none;
+  padding: 0;
+}
+
+.view-commitlog-author-items .views-field-nothing {
+  font-size: 1.1em;
+}
+
+.view-commitlog-author-commits .views-label-revision-1 {
+  padding-left: 10px;
+  font-style: italic;
+}
+
+.view-commitlog-author-commits .views-field-view {
+  font-weight: normal;
+}
+
+.view-commitlog-author-commits .views-field-message {
+  background: #F6F6F2;
+  padding: 1px;
+  margin: 0 0 2em 0;
+  border-bottom: solid 1px #E1E1DB;
+  font-size: 0.923em;
+}
+
+/* Repository */
+
+.view-commitlog-repository-commits .view-content h3 {
+  margin: 15px 0 10px;
+  font-size: 1.35em;
+}
+
+.view-commitlog-repository-commits .commit-repository  {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.view-commitlog-repository-commits .item-list {
+}
+
+.view-commitlog-repository-commits li.views-row {
+  background: none;
+  list-style-type: none;
+  list-style-image: none;
+  padding: 0;
+}
+
+.view-commitlog-repository-items .views-field-nothing {
+  font-size: 1.1em;
+}
+
+.view-commitlog-repository-commits .views-label-revision-1 {
+  padding-left: 10px;
+  font-style: italic;
+}
+
+.view-commitlog-repository-commits .views-field-view {
+  font-weight: normal;
+}
+
+.view-commitlog-repository-commits .views-field-message {
+  background: #F6F6F2;
+  padding: 1px;
+  margin: 0 0 2em 0;
+  border-bottom: solid 1px #E1E1DB;
+  font-size: 0.923em;
+}
+

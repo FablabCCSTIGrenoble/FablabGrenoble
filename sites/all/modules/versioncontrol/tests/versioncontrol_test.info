@@ -1,0 +1,14 @@
+name = "Version Control Test"
+description = "Support module for Version Control core tests."
+package = Testing
+dependencies[] = versioncontrol
+files[] = versioncontrol_test.inc
+version = VERSION
+core = 6.x
+
+; Information added by drupal.org packaging script on 2011-07-22
+version = "6.x-2.0-alpha2"
+core = "6.x"
+project = "versioncontrol"
+datestamp = "1311365222"
+

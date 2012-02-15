@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE package SYSTEM "http://pear.php.net/dtd/package-1.0">
+<package version="1.0" packagerversion="1.9.2">
+ <name>uploadprogress</name>
+ <summary>An extension to track progress of a file upload.</summary>
+ <description>See http://svn.php.net/viewvc/pecl/uploadprogress/trunk/examples/ for a little example. 
+ It is only known to work on Apache with mod_php, other SAPI implementations unfortunately still have issues.
+ At least PHP 5.2 is needed.
+ </description>
+ <maintainers>
+  <maintainer>
+   <user>chregu</user>
+   <name>Christian Stocker</name>
+   <email>chregu@php.net</email>
+   <role>lead</role>
+  </maintainer>
+  <maintainer>
+   <user>ramsey</user>
+   <name>Ben Ramsey</name>
+   <email>ramsey@php.net</email>
+   <role>developer</role>
+  </maintainer>
+  </maintainers>
+ <release>
+  <version>1.0.3.1</version>
+  <date>2011-08-15</date>
+  <license>PHP License</license>
+  <state>stable</state>
+  <notes>- Wrong version number in .h file
+  </notes>
+  <deps>
+   <dep type="php" rel="ge" version="5.2.0"/>
+  </deps>
+  <filelist>
+   <file role="doc" name="examples/index.php"/>
+   <file role="doc" name="examples/info.php"/>
+   <file role="doc" name="examples/server.php"/>
+   <file role="src" name="config.m4"/>
+   <file role="src" name="config.w32"/>
+   <file role="src" name="php_uploadprogress.h"/>
+   <file role="src" name="uploadprogress.c"/>
+  </filelist>
+ </release>
+</package>

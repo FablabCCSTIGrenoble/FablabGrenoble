@@ -1,0 +1,46 @@
+<?php
+
+require_once drupal_get_path('module', 'versioncontrol') . '/tests/VersioncontrolTestCase.test';
+
+/**
+ * @file
+ * Tests ensuring proper behavior of the VersioncontrolBackend, and where
+ * possible, the classes descending from it.
+ */
+
+/**
+ * Unit tests ensuring all base VersioncontrolBackend behaviors work properly.
+ */
+class VersioncontrolBackendBaseUnitTest extends VersioncontrolTestCase {
+
+  public static function getInfo() {
+    return array(
+      'name' => t('Backend base unit tests'),
+      'description' => t('Low-level tests on VC Backend objects.'),
+      'group' => t('Version Control API'),
+    );
+  }
+
+  function setUp() {
+    $this->useBackends = self::BACKENDS_ALL;
+    parent::setUp();
+  }
+
+  public function testDefaultSettings() {
+    // As soon as the backend is initialized, the base class should have a bunch
+    // of classes declared on it and available for factory operations. Check.
+    // This also has the effect of ensuring autoload declarations are in place.
+    $types = array('repo', 'operation', 'item', 'branch', 'tag');
+    foreach ($this->backends as $backend) { // Iterate over all available backends.
+      foreach ($types as $type) { // Iterate over each entity type.
+        $this->assertTrue(isset($backend->classesEntities[$type]), "$backend->name backend declares an entity class for type '$type'", 'PHP');
+        $refl = new ReflectionClass($backend->classesEntities[$type]);
+        $this->assertTrue($refl->implementsInterface('VersioncontrolEntityInterface'), "$backend->name backend's declared entity class for type '$type' implements the VersioncontrolEntityInterface.", 'PHP');
+        $this->assertTrue(isset($backend->classesControllers[$type]), "$backend->name backend declares an entity controller class for type '$type'", 'PHP');
+        $this->assertTrue(is_subclass_of($backend->classesControllers[$type], 'VersioncontrolEntityController'), "$backend->name backend's declared entity controller class for type '$type' descends from VersioncontrolEntityController.", 'PHP');
+      }
+    }
+  }
+}
+
+//TODO test backend methods on another test class with the test backend

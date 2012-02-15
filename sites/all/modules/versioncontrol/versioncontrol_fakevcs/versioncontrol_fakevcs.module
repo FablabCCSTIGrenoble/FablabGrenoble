@@ -1,0 +1,99 @@
+<?php
+/**
+ * @file
+ * FakeVCS backend for Version Control API -
+ * An example module illustrating how to write a VCS backend.
+ *
+ * Copyright 2007, 2008 by Jakob Petsovits ("jpetso", http://drupal.org/user/56020)
+ */
+
+// Update methods.
+define('VERSIONCONTROL_FAKEVCS_UPDATE_CRON',   0);
+define('VERSIONCONTROL_FAKEVCS_UPDATE_SCRIPT', 1);
+
+// The admin pages.
+include_once(drupal_get_path('module', 'versioncontrol_fakevcs') .'/versioncontrol_fakevcs.admin.inc');
+
+/**
+ * Implementation of hook_versioncontrol_backends().
+ */
+function versioncontrol_fakevcs_versioncontrol_backends() {
+  return array(
+    'fakevcs' => new VersioncontrolFakeBackend(),
+  );
+}
+
+/**
+ * Implementation of [versioncontrol_backend]_operation():
+ * Act on database changes when commit, tag or branch operations are inserted
+ * or deleted. Note that this hook is not necessarily called at the time
+ * when the operation actually happens - operations can also be inserted
+ * by a cron script when the actual commit/branch/tag has been accomplished
+ * for quite a while already.
+ *
+ * @param $op
+ *   'insert' when the operation has just been recorded and inserted into the
+ *   database, or 'delete' if it will be deleted right after this hook
+ *   has been called.
+ *
+ * @param $operation
+ *   A VersioncontrolOperation object containing basic information about
+ *   the commit, branch or tag operation.
+ *
+ * @param $operation_items
+ *   A structured array containing all items that were affected by the above
+ *   operation. Array keys are the current/new paths, even if the item doesn't
+ *   exist anymore (as is the case with delete actions in commits).
+ *   The associated array elements are VersioncontrolItem objects.
+ */
+function versioncontrol_fakevcs_operation($op, $operation, $operation_items) {
+  // Mmkay, with Version Control API not being able to extend operations
+  // anymore like in 5.x-1.x, I'm running out of good examples for this hook.
+  // But let's say we want to store the original branch for a commit, so that
+  // we can improve commit visualizations (should Version Control API
+  // respectively Commit Log support that sometime in the future).
+  if ($operation['type'] != VERSIONCONTROL_OPERATION_COMMIT) {
+    return; // Not interested in branch and tag operations.
+  }
+
+  switch ($op) {
+    case 'insert':
+      foreach ($operation['labels'] as $label) {
+        db_query(
+          "INSERT INTO {versioncontrol_fakevcs_original_commit_branches}
+          (vc_op_id, label_id) VALUES (%d, %d)",
+          $operation['vc_op_id'], $label['label_id']
+        );
+      }
+      break;
+
+    case 'delete':
+      db_query('DELETE FROM {versioncontrol_fakevcs_original_commit_branches}
+                WHERE vc_op_id = %d', $operation['vc_op_id']);
+      break;
+  }
+}
+
+/**
+ * Implementation of [versioncontrol_backend]_repository():
+ * Manage (insert, update or delete) additional FakeVCS repository data
+ * in the database.
+ *
+ * Mind that you can also use the $repository['data'] array to store repository
+ * settings, see the API docs for hook_versioncontrol_repository_submit()
+ * in hook_versioncontrol.php for more information on that matter.
+ *
+ * @param $op
+ *   Either 'insert' when the repository has just been created, or 'update'
+ *   when repository name, root, URL backend or module specific data change,
+ *   or 'delete' if it will be deleted after this function has been called.
+ *
+ * @param $repository
+ *   The repository object.
+ */
+function versioncontrol_fakevcs_repository($op, $repository) {
+  if ($op == 'delete') {
+    db_query('DELETE FROM {versioncontrol_fakevcs_repository_ponies}
+              WHERE repo_id = %d', $repository['repo_id']);
+  }
+}

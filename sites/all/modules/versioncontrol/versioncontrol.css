@@ -1,0 +1,36 @@
+
+.versioncontrol-committer-item {
+  line-height: 120%;
+}
+
+.versioncontrol-commit-times {
+  margin-top: 3px;
+  color: #9d9d93;
+  font-size: .8em;
+  line-height: 110%;
+}
+
+/** Items view **/
+
+.versioncontrol-diffstat {
+  clear: both;
+}
+
+.versioncontrol-diffstat span {
+  display: block;
+  height: 15px;
+  width: 15px;
+  background: url("images/dg-diffstat.png") scroll 0px 34px;
+  float: left;
+  text-indent: -9999px;
+}
+
+.versioncontrol-diffstat span.plus {
+  background-position: 0px 133px;
+}
+
+.versioncontrol-diffstat span.minus {
+  background-position: 0px 83px;
+}
+
+

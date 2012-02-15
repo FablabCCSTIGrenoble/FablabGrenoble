@@ -1,0 +1,278 @@
+<?php
+
+abstract class VersioncontrolTestCase extends DrupalWebTestCase {
+  const BACKENDS_TEST = 0x001;
+  const BACKENDS_ENABLED = 0x002;
+  const BACKENDS_DISABLED = 0x004;
+  const BACKENDS_INSTALLED = 0x006;
+  const BACKENDS_ALL = 0x007;
+  const BACKENDS_DEFAULT = 0x008;
+
+  const BACKENDS_NONE = 0x010;
+
+  /**
+   * Configuration property, used by child classes to communicate which backends
+   * should be loaded for use by the test.
+   *
+   * This variable and determines how the automated backend set up process works
+   * using a bitmask. The following flags are valid:
+   *
+   *  #- VersioncontrolTestCase::BACKENDS_TEST - include the 'test' backend,
+   *     contained in the versioncontrol_test.module owned by VCAPI.
+   *  #- VersioncontrolTestCase::BACKENDS_ENABLED - include all the backends
+   *     that are installed & enabled in the current Drupal instance.
+   *  #- VersioncontrolTestCase::BACKENDS_DISABLED - include all the backends
+   *     installed but not enabled on the current Drupal instance.
+   *  #- VersioncontrolTestCase::BACKENDS_DEFAULT - do no additional magic
+   *     inclusion of backends, but do initialize any backends that were
+   *     explicitly loaded (via the standard approach: passing the name of the
+   *     backend module as a string to parent::setUp()). This is the default.
+   *
+   * For tests that do not need to interact with backends (that is, with a
+   * VersioncontrolBackend-descended object) at all whatsoever,
+   * VersioncontrolTestCase::BACKENDS_NONE will skip magical backend loading
+   * logic (as with VersioncontrolTestCase::BACKENDS_DEFAULT) and perform no
+   * initialization of the backend objects.
+   *
+   * Defaults to loading only the test backend. Child classes wishing to change
+   * the behavior MUST set this to the appropriate value in their setUp()
+   * implementation BEFORE calling parent::setUp().
+   *
+   * @see VersioncontrolTestCase::determineBackends()
+   */
+  protected $useBackends = self::BACKENDS_DEFAULT;
+  public $testBackend;
+
+  public function setUp() {
+    $magic_modules = $this->determineBackends();
+    // load crucial required modules in addition to requested ones.
+    $arg_modules = func_get_args();
+    $modules = array_merge(array('autoload', 'dbtng', 'ctools', 'views', 'versioncontrol'), $arg_modules, $magic_modules);
+    call_user_func_array(array('VersioncontrolTestCase', 'parent::setUp'), $modules);
+
+    if (!($this->useBackends & (self::BACKENDS_NONE))) {
+      // If the test requested it, init and attach backends.
+      $this->attachBackends();
+    }
+  }
+
+  protected function tearDown() {
+    // For dbtng the prefix is part of the data associated with the
+    // connection, so, when simpletest makes a new prefix to run another
+    // test method, dbtng do not notice it is a _new_ connection, so
+    // removing by hand force it to open a new one with the right changed
+    // prefix.
+    Database::removeConnection('default');
+    parent::tearDown();
+  }
+
+  /**
+   * Set up the testing environment with the appropriate set of backends for the
+   * current test run.
+   *
+   * Due to VCAPI's special relationship with its backends, it can be
+   * advantageous to have VCAPI-owned tests that operate directly on code in
+   * the backends. Such tests need to enable backend modules as appropriate, but
+   * must draw from the list of installed modules, not merely enabled modules,
+   * and therefore cannot rely on hook invocations responses for discovery. So
+   * we have to swim upstream a bit, relying on a custom addition to module
+   * .info files for discovery.
+   *
+   * This method is called only once during setUp(), and does two essential
+   */
+  private function determineBackends() {
+    if ($this->useBackends & (self::BACKENDS_NONE | self::BACKENDS_DEFAULT)) {
+      // Test requests that we do no magic loading, bail out early.
+      return array();
+    }
+
+    $modules = array();
+    if ($this->useBackends & self::BACKENDS_TEST) {
+      // Test requests the testing backend to be made available.
+      $modules[] = 'versioncontrol_test';
+    }
+
+    if ($this->useBackends & (self::BACKENDS_ENABLED | self::BACKENDS_DISABLED)) {
+      // Test requests magic loading of installed backend modules. Query the
+      // system table for a module list, then figure out which ones to add.
+      $result = db_query("SELECT name, status, info FROM {system} WHERE type = 'module'");
+      $files = array();
+      while ($module = db_fetch_object($result)) {
+        $module->info = unserialize($module->info);
+        if (!isset($module->info['vcapi-backend'])) { // sloppy check b/c we can't enforce anything effectively
+          // not a vcapi backend module, so skip it.
+          continue;
+        }
+        if (($module->status == TRUE && ($this->useBackends & self::BACKENDS_ENABLED)) ||
+            ($modules->status == FALSE && ($this->useBackends & self::BACKENDS_DISABLED))) {
+          $modules[] = $module->name;
+        }
+      }
+    }
+    return $modules;
+  }
+
+  private function attachBackends() {
+    // Clear the backend static cache and retrieve all backends.
+    $this->backends = versioncontrol_get_backends('', TRUE);
+
+    // If the test backend was requested, also store it in a special property.
+    if ($this->useBackends & self::BACKENDS_TEST) {
+      $this->testBackend = versioncontrol_get_backends('test');
+    }
+  }
+
+  /**
+   * Create a dummy backend, insert it in the database, and return it for use.
+   *
+   * This uses a fake path that doesn't point to any real repository, so
+   * anything that actually tries to interact with the underlying repo will
+   * fail.
+   *
+   * @param string $backend_name
+   * @param array  $data
+   */
+  public function versioncontrolCreateRepository($backend_name = 'test', $data = array(), $insert=TRUE) {
+    static $i = 0;
+    $default_data = array(
+      'name' => 'test_repo_' . ++$i,
+      'vcs' => $backend_name,
+      'root' => '/fake/path/to/repo',
+      'authorization_method' => 'versioncontrol_admin',
+      'updated' => 0,
+      'update_method' => 0,
+      'locked' => 0,
+      'data' => array(),
+      'plugins' => array(),
+    );
+    $default_plugins = array(
+      'auth_handler' => 'ffa',
+      'author_mapper' => 'none',
+      'committer_mapper' => 'none',
+      'webviewer_url_handler' => 'none',
+    );
+
+    $data += $default_data;
+    if (!isset($data['webviewer_base_url'])) {
+      $data['data']['webviewer_base_url'] = '';
+    }
+    foreach ($default_plugins as $plugin_slot => $default_plugin) {
+      if (empty($data['plugins'][$plugin_slot])) {
+        $data['plugins'][$plugin_slot] = $default_plugin;
+      }
+    }
+    $backend = $this->backends[$backend_name];
+    $repo = $backend->buildEntity('repo', $data);
+    if ($insert) {
+      $repo->insert();
+      $this->assertTrue(isset($repo->repo_id) && is_numeric($repo->repo_id), t('VersioncontrolRepository::insert() properly populates a new repository object with an integer repo_id.'));
+    }
+
+    return $repo;
+  }
+
+  public function versioncontrolCreateLabel($type, $backend_name = 'test', $data = array(), $insert=TRUE) {
+    $default_data = array(
+      'name' => $this->randomName(32),
+    );
+    $data += $default_data;
+
+    $backend = $this->backends[$backend_name];
+    if (!isset($data['repo_id'])) {
+      if (!isset($data['repository']) || !is_subclass_of($data['repository'], 'VersioncontrolRepository')) {
+        $repo = $this->versioncontrolCreateRepository($backend_name);
+        $data['repo_id'] = $repo->repo_id;
+      }
+    }
+    $label = $backend->buildEntity($type, $data);
+    if ($insert) {
+      $label->insert();
+    }
+
+    return $label;
+  }
+
+  public function versioncontrolCreateBranch($backend_name = 'test', $data = array(), $insert=TRUE) {
+    $label = $this->versioncontrolCreateLabel('branch', $backend_name, $data, $insert);
+    if ($insert) {
+      $this->assertTrue(isset($label->label_id) && is_numeric($label->label_id), t('VersioncontrolBranch::insert() properly populates a new repository object with an integer label_id.'));
+    }
+    return $label;
+  }
+
+  public function versioncontrolCreateTag($backend_name = 'test', $data = array(), $insert=TRUE) {
+    $label = $this->versioncontrolCreateLabel('tag', $backend_name, $data, $insert);
+    if ($insert) {
+      $this->assertTrue(isset($label->label_id) && is_numeric($label->label_id), t('VersioncontrolTag::insert() properly populates a new repository object with an integer label_id.'));
+    }
+    return $label;
+  }
+
+  public function versioncontrolCreateOperation($backend_name = 'test', $data = array(), $insert=TRUE) {
+    static $i = 0;
+    $name = $this->randomName(7);
+    $default_data = array(
+      'type' => VERSIONCONTROL_OPERATION_COMMIT,
+      'author_date' => time(),
+      'committer_date' => time(),
+      'author' => $name,
+      'author_uid' => 0,
+      'committer' => $name,
+      'committer_uid' => 0,
+      'revision' => ++$i,
+      'message' => $this->randomString(20),
+      'labels' => array(),
+      'itemRevisions' => array(),
+    );
+    $data += $default_data;
+
+    $backend = $this->backends[$backend_name];
+    if (!isset($data['repo_id'])) {
+      if (!isset($data['repository']) || !is_subclass_of($data['repository'], 'VersioncontrolRepository')) {
+        $repo = $this->versioncontrolCreateRepository($backend_name);
+        $data['repo_id'] = $repo->repo_id;
+      }
+    }
+    $operation = $backend->buildEntity('operation', $data);
+    if ($insert) {
+      $operation->insert();
+      $this->assertTrue(isset($operation->vc_op_id) && is_numeric($operation->vc_op_id), t('VersioncontrolOperation::insert() properly populates a new repository object with an integer vc_op_id.'));
+    }
+
+    return $operation;
+  }
+
+  public function versioncontrolCreateItem($backend_name = 'test', $data = array(), $insert=TRUE) {
+    static $i = 0;
+    $default_data = array(
+      'path' => sprintf('/%s/%s.inc', $this->randomName(4), $this->randomName(4)),
+      'revision' => ++$i,
+      'type' => VERSIONCONTROL_ITEM_FILE,
+      'source_item_revision_id' => 0,
+      'action' => VERSIONCONTROL_ACTION_ADDED,
+      'line_changes_added' => 0,
+      'line_changes_removed' => 0,
+    );
+    $data += $default_data;
+
+    $backend = $this->backends[$backend_name];
+    if (!isset($data['repo_id'])) {
+      if (!isset($data['repository']) || !is_subclass_of($data['repository'], 'VersioncontrolRepository')) {
+        $repo = $this->versioncontrolCreateRepository($backend_name);
+        $data['repo_id'] = $repo->repo_id;
+      }
+    }
+    if (!isset($data['vc_op_id'])) {
+      $operation = $this->versioncontrolCreateOperation('test', array('repo_id' => $data['repo_id']));
+      $data['vc_op_id'] = $operation->vc_op_id;
+    }
+    $item = $backend->buildEntity('item', $data);
+    if ($insert) {
+      $item->insert();
+      $this->assertTrue(isset($item->item_revision_id) && is_numeric($item->item_revision_id), t('VersioncontrolItem::insert() properly populates a new repository object with an integer item_revision_id.'));
+    }
+
+    return $item;
+  }
+
+}
