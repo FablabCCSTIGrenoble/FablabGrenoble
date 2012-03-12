@@ -55,13 +55,14 @@
 <div id="page">
 
   <div id="header">
+  	 <a href="<?php print $base_path ?>" title="<?php print t('Home') ?>">
+	        <?php print $site_name ?>
+	      </a>
 <?php if ($site_name) : ?>
 
 <?php if ($is_front) : /* if we are on the front page use <h1> for site title */ ?>
  <h1 class="sitetitle">
-	      <a href="<?php print $base_path ?>" title="<?php print t('Home') ?>">
-	        <?php print $site_name ?>
-	      </a>
+	     
 	    </h1>	    
  <?php endif; ?>
  

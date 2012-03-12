@@ -39,7 +39,7 @@ body {margin:40px 0 20px 0;}
 } 
 
 #primary {
-	float: left;
+	/*float: left;*/
 	margin: 0px;
 	/* width set with the two classe below */
 	}	
@@ -49,7 +49,7 @@ body {margin:40px 0 20px 0;}
 }
 
 .long{
-	width:757px; /* otherwise go wide... :) */
+	width:900px; /* otherwise go wide... :) */
 }
 
 .path{ /*breadcrumb*/
