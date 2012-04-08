@@ -1669,7 +1669,7 @@ function system_site_maintenance_settings() {
   $form['site_offline_message'] = array(
     '#type' => 'textarea',
     '#title' => t('Site off-line message'),
-    '#default_value' => variable_get('site_offline_message', t('@site is currently under maintenance. We should be back shortly. Thank you for your patience.', array('@site' => variable_get('site_name', 'Drupal')))),
+    '#default_value' => variable_get('site_offline_message', t('We at Fablab Grenoble are working on the site. Please consult the agenda below and send us an email to make a reservation', array('@site' => variable_get('site_name', 'Drupal')))),
     '#description' => t('Message to show visitors when the site is in off-line mode.')
   );
 

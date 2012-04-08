@@ -357,7 +357,7 @@ function drupal_site_offline() {
   drupal_set_header('HTTP/1.1 503 Service unavailable');
   drupal_set_title(t('Site off-line'));
   print theme('maintenance_page', filter_xss_admin(variable_get('site_offline_message',
-    t('@site is currently under maintenance. We should be back shortly. Thank you for your patience.', array('@site' => variable_get('site_name', 'Drupal'))))));
+    t('@We are working on the Fablab Grenoble Website. In the mean time, please cunsult the agenda below, and send an email to make reservations for the machines', array('@site' => variable_get('site_name', 'Drupal'))))));
 }
 
 /**

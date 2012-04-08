@@ -9,6 +9,17 @@ color: #005a8c;
 text-decoration:none;
 	}
 	
+#logof a {
+ 	color:#5B5B5B;
+ 	float:left;
+ 	margin: 0 10px;
+}
+
+#logon  {
+ 	float:left;
+}
+
+	
 #footer a{
 	color:#0CF;
 	}

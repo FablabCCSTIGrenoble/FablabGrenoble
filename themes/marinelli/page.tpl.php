@@ -28,7 +28,23 @@
 <body>
 
   <div id="utilities">
-  <?php print $search_box ?>
+ <?php
+if ($user->uid==0){
+	echo " <a href=\"/?q=user\">Connection</a>";
+	}else{
+	global $user;
+	$userpath = 'user/' . $user->uid;
+	print '<div id="logon">';
+	echo "Bienvenue ";
+	echo " <a href=\"/?q=$userpath\"> $user->name</a>";
+	print '</div>';
+	print '<div id="logof">';
+	echo " <a href=\"/?q=logout\"> Déconnection</a>";
+	print '</div>';
+}
+?>
+
+<?php print $search_box; ?>
   
   <?php if (isset($primary_links)) : ?>
   <?php print '<div id="plinks">'; ?>

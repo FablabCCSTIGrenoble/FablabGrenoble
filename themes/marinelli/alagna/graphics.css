@@ -55,7 +55,7 @@ img {border: 0;}
 .defaultblock .blockcontent,
 .loginblock .blockcontent{background:#d5efff url(img/blockbottom.gif) no-repeat bottom;} 
 .defaultblock h2,.loginblock h2.login{color:#fff; background:#2281c1 url(img/blocktop.gif) no-repeat top;}	
-.defaultblock h3{color:#66;}
+.defaultblock h3{color:#666666;}
 
 
 /*- Primary Contents */

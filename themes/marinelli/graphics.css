@@ -2,17 +2,17 @@
 
 
 /* ########## Graphics ########## */
-/* ## In the css you will find everything about template's look and feel (backgorunds, colors, list-styles ecc..) ## */
+/* background: #EDEDED url(img/body.gif);## In the css you will find everything about template's look and feel (backgorunds, colors, list-styles ecc..) ## */
 
 
 body {
-	color: #333;
-	background: #EDEDED url(img/body.gif);
+	/*background: #8F8F8F;*/
+	background: #000033 url(img/bg_wood.jpg)
 	}
 	
 #page {
 	background: white;
-	border:12px solid #054b81;
+	/*border:1px solid #054b81;*/
 	}
 
 img {border: 0;}

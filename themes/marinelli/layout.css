@@ -21,7 +21,13 @@ body {margin:40px 0 20px 0;}
 	width:970px; /* match page width */
 	height:25px;
 	position:relative;
+	color: #ffffff;
+	text-align:left;
 	}
+	
+#decon {
+	color: red;
+}
 	
 #header {
 	padding: 0;
@@ -49,7 +55,7 @@ body {margin:40px 0 20px 0;}
 }
 
 .long{
-	width:745px; /* otherwise go wide... :) */
+	width:900px; /*745 otherwise go wide... :) */
 }
 
 .path{ /*breadcrumb*/
@@ -67,12 +73,12 @@ body {margin:40px 0 20px 0;}
 	}	
 	
 #primary .singlepage {
-	padding:0 0 15px 0px;
+	padding:0 0 0px 40px;
 	}
 	
 .preview .node{ /*node preview*/
-	margin-bottom:10px;
-	padding:20px;
+	margin-bottom:5px;
+	padding:10px;
 	}
 	
 #page #primary .drdot{ /* sistema il float (use this to stop floating elements) */
