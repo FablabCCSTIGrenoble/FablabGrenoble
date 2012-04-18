@@ -36,10 +36,10 @@ if ($user->uid==0){
 	$userpath = 'user/' . $user->uid;
 	print '<div id="logon">';
 	echo "Bienvenue ";
-	echo " <a href=\"/?q=$userpath\"> $user->name</a>";
+	echo " <a href=\"/$userpath\"> $user->name</a>";
 	print '</div>';
 	print '<div id="logof">';
-	echo " <a href=\"/?q=logout\"> Déconnection</a>";
+	echo " <a href=\"/logout\"> Déconnection</a>";
 	print '</div>';
 }
 ?>
@@ -175,6 +175,7 @@ if ($user->uid==0){
 <div id="footer">
 <?php print $footer ?>
 <?php print $footer_message ?>
+<a href=/node/41>A propos</a>
 </div>
 <?php print $closure ?>
 </body>
